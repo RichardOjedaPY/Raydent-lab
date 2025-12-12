@@ -106,6 +106,43 @@
         justify-content: flex-end;
         gap: 10px;
     }
+
+    .btn {
+        padding: 8px 16px;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+    }
+
+    .btn-outline-secondary {
+        background: white;
+        border: 1px solid #bdc3c7;
+        color: #7f8c8d;
+    }
+
+    .btn-outline-secondary:hover {
+        background: #ecf0f1;
+    }
+
+    .btn-primary {
+        background: #3498db;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #2980b9;
+    }
+
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 0.85rem;
+    }
+
+    .mb-2 {
+        margin-bottom: 0.5rem;
+    }
 </style>
 
 <div id="odontograma-overlay" class="odo-modal-backdrop">
@@ -120,7 +157,7 @@
         </p>
 
         <div class="canvas-container">
-            <canvas id="odoCanvas" width="600" height="350"></canvas>
+            <canvas id="odoCanvas" width="700" height="400"></canvas>
         </div>
 
         <div class="odo-panel-info mb-2">
@@ -152,332 +189,248 @@
         const btnLimpiar = document.getElementById('btn-limpiar-odo');
 
         const canvas = document.getElementById('odoCanvas');
-        if (!canvas) return; // seguridad
+        if (!canvas) return;
         const ctx = canvas.getContext('2d');
 
         const outputModal = document.getElementById('lista-seleccion');
-        const inputHidden = document.getElementById('piezas_codigos');
-        const resumenOutside = document.getElementById('piezas_codigos_resumen');
+        const inputHidden = document.getElementById('piezas_tomografia_codigos');
+        const resumenOutside = document.getElementById('piezas_tomografia_resumen');
 
-        // ---- datos de dientes (igual que tu ejemplo) ----
-        let dientes = [{
-                id: 18,
-                x: 40,
-                y: 80,
-                w: 28,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 17,
-                x: 75,
-                y: 70,
-                w: 28,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 16,
-                x: 110,
-                y: 60,
-                w: 30,
-                h: 38,
-                selected: false
-            },
-            {
-                id: 15,
-                x: 145,
-                y: 55,
-                w: 25,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 14,
-                x: 175,
-                y: 50,
-                w: 25,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 13,
-                x: 205,
-                y: 50,
-                w: 25,
-                h: 38,
-                selected: false
-            },
-            {
-                id: 12,
-                x: 235,
-                y: 55,
-                w: 22,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 11,
-                x: 265,
-                y: 60,
-                w: 30,
-                h: 40,
-                selected: false
-            },
+        // Datos de dientes con tipos anatómicos
+        let dientes = [
+            // Cuadrante 1 (Superior Derecho)
+            {id: 18, x: 50, y: 85, w: 32, h: 42, tipo: 'molar', selected: false},
+            {id: 17, x: 88, y: 75, w: 32, h: 42, tipo: 'molar', selected: false},
+            {id: 16, x: 126, y: 65, w: 34, h: 44, tipo: 'molar', selected: false},
+            {id: 15, x: 166, y: 58, w: 28, h: 38, tipo: 'premolar', selected: false},
+            {id: 14, x: 200, y: 52, w: 28, h: 38, tipo: 'premolar', selected: false},
+            {id: 13, x: 234, y: 48, w: 26, h: 44, tipo: 'canino', selected: false},
+            {id: 12, x: 266, y: 50, w: 24, h: 38, tipo: 'incisivo', selected: false},
+            {id: 11, x: 296, y: 52, w: 28, h: 42, tipo: 'incisivo', selected: false},
 
-            {
-                id: 21,
-                x: 305,
-                y: 60,
-                w: 30,
-                h: 40,
-                selected: false
-            },
-            {
-                id: 22,
-                x: 340,
-                y: 55,
-                w: 22,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 23,
-                x: 370,
-                y: 50,
-                w: 25,
-                h: 38,
-                selected: false
-            },
-            {
-                id: 24,
-                x: 400,
-                y: 50,
-                w: 25,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 25,
-                x: 430,
-                y: 55,
-                w: 25,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 26,
-                x: 460,
-                y: 60,
-                w: 30,
-                h: 38,
-                selected: false
-            },
-            {
-                id: 27,
-                x: 495,
-                y: 70,
-                w: 28,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 28,
-                x: 530,
-                y: 80,
-                w: 28,
-                h: 35,
-                selected: false
-            },
+            // Cuadrante 2 (Superior Izquierdo)
+            {id: 21, x: 330, y: 52, w: 28, h: 42, tipo: 'incisivo', selected: false},
+            {id: 22, x: 364, y: 50, w: 24, h: 38, tipo: 'incisivo', selected: false},
+            {id: 23, x: 394, y: 48, w: 26, h: 44, tipo: 'canino', selected: false},
+            {id: 24, x: 426, y: 52, w: 28, h: 38, tipo: 'premolar', selected: false},
+            {id: 25, x: 460, y: 58, w: 28, h: 38, tipo: 'premolar', selected: false},
+            {id: 26, x: 494, y: 65, w: 34, h: 44, tipo: 'molar', selected: false},
+            {id: 27, x: 534, y: 75, w: 32, h: 42, tipo: 'molar', selected: false},
+            {id: 28, x: 572, y: 85, w: 32, h: 42, tipo: 'molar', selected: false},
 
-            {
-                id: 48,
-                x: 40,
-                y: 220,
-                w: 28,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 47,
-                x: 75,
-                y: 230,
-                w: 28,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 46,
-                x: 110,
-                y: 240,
-                w: 30,
-                h: 38,
-                selected: false
-            },
-            {
-                id: 45,
-                x: 145,
-                y: 245,
-                w: 25,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 44,
-                x: 175,
-                y: 250,
-                w: 25,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 43,
-                x: 205,
-                y: 250,
-                w: 25,
-                h: 38,
-                selected: false
-            },
-            {
-                id: 42,
-                x: 235,
-                y: 245,
-                w: 22,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 41,
-                x: 265,
-                y: 240,
-                w: 30,
-                h: 40,
-                selected: false
-            },
+            // Cuadrante 4 (Inferior Derecho)
+            {id: 48, x: 50, y: 245, w: 32, h: 42, tipo: 'molar', selected: false},
+            {id: 47, x: 88, y: 255, w: 32, h: 42, tipo: 'molar', selected: false},
+            {id: 46, x: 126, y: 265, w: 34, h: 44, tipo: 'molar', selected: false},
+            {id: 45, x: 166, y: 272, w: 28, h: 38, tipo: 'premolar', selected: false},
+            {id: 44, x: 200, y: 278, w: 28, h: 38, tipo: 'premolar', selected: false},
+            {id: 43, x: 234, y: 278, w: 26, h: 44, tipo: 'canino', selected: false},
+            {id: 42, x: 266, y: 280, w: 24, h: 38, tipo: 'incisivo', selected: false},
+            {id: 41, x: 296, y: 278, w: 28, h: 42, tipo: 'incisivo', selected: false},
 
-            {
-                id: 31,
-                x: 305,
-                y: 240,
-                w: 30,
-                h: 40,
-                selected: false
-            },
-            {
-                id: 32,
-                x: 340,
-                y: 245,
-                w: 22,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 33,
-                x: 370,
-                y: 250,
-                w: 25,
-                h: 38,
-                selected: false
-            },
-            {
-                id: 34,
-                x: 400,
-                y: 250,
-                w: 25,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 35,
-                x: 430,
-                y: 245,
-                w: 25,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 36,
-                x: 460,
-                y: 240,
-                w: 30,
-                h: 38,
-                selected: false
-            },
-            {
-                id: 37,
-                x: 495,
-                y: 230,
-                w: 28,
-                h: 35,
-                selected: false
-            },
-            {
-                id: 38,
-                x: 530,
-                y: 220,
-                w: 28,
-                h: 35,
-                selected: false
-            },
+            // Cuadrante 3 (Inferior Izquierdo)
+            {id: 31, x: 330, y: 278, w: 28, h: 42, tipo: 'incisivo', selected: false},
+            {id: 32, x: 364, y: 280, w: 24, h: 38, tipo: 'incisivo', selected: false},
+            {id: 33, x: 394, y: 278, w: 26, h: 44, tipo: 'canino', selected: false},
+            {id: 34, x: 426, y: 278, w: 28, h: 38, tipo: 'premolar', selected: false},
+            {id: 35, x: 460, y: 272, w: 28, h: 38, tipo: 'premolar', selected: false},
+            {id: 36, x: 494, y: 265, w: 34, h: 44, tipo: 'molar', selected: false},
+            {id: 37, x: 534, y: 255, w: 32, h: 42, tipo: 'molar', selected: false},
+            {id: 38, x: 572, y: 245, w: 32, h: 42, tipo: 'molar', selected: false},
         ];
 
-        function dibujarFormaDiente(ctx, d) {
+        function dibujarDiente(ctx, d) {
+            ctx.save();
+            
+            // Determinar colores según estado
+            let baseColor, shadowColor, strokeColor;
+            
+            if (d.selected) {
+                baseColor = '#3498db';
+                shadowColor = 'rgba(52, 152, 219, 0.5)';
+                strokeColor = '#2980b9';
+            } else if (d.hover) {
+                baseColor = '#ffffff';
+                shadowColor = 'rgba(0, 0, 0, 0.3)';
+                strokeColor = '#95a5a6';
+            } else {
+                baseColor = '#f8f9fa';
+                shadowColor = 'rgba(0, 0, 0, 0.15)';
+                strokeColor = '#bdc3c7';
+            }
+
+            // Sombra del diente
+            ctx.shadowColor = shadowColor;
+            ctx.shadowBlur = d.selected ? 15 : 8;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 2;
+
             ctx.beginPath();
-            ctx.moveTo(d.x, d.y + 5);
-            ctx.bezierCurveTo(d.x + 5, d.y - 5, d.x + d.w - 5, d.y - 5, d.x + d.w, d.y + 5);
-            ctx.lineTo(d.x + d.w - 2, d.y + d.h - 10);
-            ctx.bezierCurveTo(d.x + d.w / 2 + 5, d.y + d.h + 5, d.x + d.w / 2 - 5, d.y + d.h + 5, d.x + 2, d.y + d
-                .h - 10);
+
+            // Dibujar según tipo de diente
+            switch(d.tipo) {
+                case 'incisivo':
+                    dibujarIncisivo(ctx, d);
+                    break;
+                case 'canino':
+                    dibujarCanino(ctx, d);
+                    break;
+                case 'premolar':
+                    dibujarPremolar(ctx, d);
+                    break;
+                case 'molar':
+                    dibujarMolar(ctx, d);
+                    break;
+            }
+
+            // Gradiente para simular volumen
+            let gradient = ctx.createLinearGradient(d.x, d.y, d.x + d.w, d.y + d.h);
+            
+            if (d.selected) {
+                gradient.addColorStop(0, '#5dade2');
+                gradient.addColorStop(0.5, '#3498db');
+                gradient.addColorStop(1, '#2874a6');
+            } else {
+                gradient.addColorStop(0, '#ffffff');
+                gradient.addColorStop(0.3, baseColor);
+                gradient.addColorStop(1, '#e8eaf0');
+            }
+
+            ctx.fillStyle = gradient;
+            ctx.fill();
+
+            // Resetear sombra para el borde
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+
+            // Borde del diente
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = d.selected ? 2.5 : 1.5;
+            ctx.stroke();
+
+            // Brillo/highlight en la parte superior
+            if (!d.selected) {
+                ctx.beginPath();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                
+                if (d.tipo === 'molar') {
+                    ctx.ellipse(d.x + d.w/2, d.y + 8, d.w/3, 4, 0, 0, Math.PI * 2);
+                } else if (d.tipo === 'canino') {
+                    ctx.moveTo(d.x + d.w/2, d.y + 2);
+                    ctx.lineTo(d.x + d.w/2 - 4, d.y + 10);
+                    ctx.lineTo(d.x + d.w/2 + 4, d.y + 10);
+                } else {
+                    ctx.ellipse(d.x + d.w/2, d.y + 6, d.w/3.5, 3, 0, 0, Math.PI * 2);
+                }
+                
+                ctx.fill();
+            }
+
+            // Número del diente
+            ctx.fillStyle = d.selected ? '#ffffff' : '#34495e';
+            ctx.font = d.selected ? 'bold 12px Arial' : '11px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(d.id, d.x + d.w/2, d.y + d.h/2);
+
+            ctx.restore();
+        }
+
+        function dibujarIncisivo(ctx, d) {
+            // Forma rectangular con esquinas redondeadas
+            const radius = 3;
+            ctx.moveTo(d.x + radius, d.y);
+            ctx.lineTo(d.x + d.w - radius, d.y);
+            ctx.quadraticCurveTo(d.x + d.w, d.y, d.x + d.w, d.y + radius);
+            ctx.lineTo(d.x + d.w, d.y + d.h - radius);
+            ctx.quadraticCurveTo(d.x + d.w, d.y + d.h, d.x + d.w - radius, d.y + d.h);
+            ctx.lineTo(d.x + radius, d.y + d.h);
+            ctx.quadraticCurveTo(d.x, d.y + d.h, d.x, d.y + d.h - radius);
+            ctx.lineTo(d.x, d.y + radius);
+            ctx.quadraticCurveTo(d.x, d.y, d.x + radius, d.y);
+            ctx.closePath();
+        }
+
+        function dibujarCanino(ctx, d) {
+            // Forma puntiaguda característica
+            ctx.moveTo(d.x + d.w/2, d.y);
+            ctx.lineTo(d.x + d.w, d.y + 8);
+            ctx.lineTo(d.x + d.w, d.y + d.h - 6);
+            ctx.quadraticCurveTo(d.x + d.w, d.y + d.h, d.x + d.w - 4, d.y + d.h);
+            ctx.lineTo(d.x + 4, d.y + d.h);
+            ctx.quadraticCurveTo(d.x, d.y + d.h, d.x, d.y + d.h - 6);
+            ctx.lineTo(d.x, d.y + 8);
+            ctx.closePath();
+        }
+
+        function dibujarPremolar(ctx, d) {
+            // Forma ovalada con dos cúspides suaves
+            ctx.moveTo(d.x + d.w/2, d.y);
+            ctx.bezierCurveTo(d.x + d.w - 2, d.y + 2, d.x + d.w, d.y + 8, d.x + d.w, d.y + d.h/2);
+            ctx.bezierCurveTo(d.x + d.w, d.y + d.h - 4, d.x + d.w - 4, d.y + d.h, d.x + d.w/2, d.y + d.h);
+            ctx.bezierCurveTo(d.x + 4, d.y + d.h, d.x, d.y + d.h - 4, d.x, d.y + d.h/2);
+            ctx.bezierCurveTo(d.x, d.y + 8, d.x + 2, d.y + 2, d.x + d.w/2, d.y);
+            ctx.closePath();
+        }
+
+        function dibujarMolar(ctx, d) {
+            // Forma cuadrada con múltiples cúspides
+            const indent = 4;
+            ctx.moveTo(d.x + indent, d.y);
+            ctx.lineTo(d.x + d.w/2, d.y + indent);
+            ctx.lineTo(d.x + d.w - indent, d.y);
+            ctx.lineTo(d.x + d.w, d.y + indent);
+            ctx.lineTo(d.x + d.w, d.y + d.h - indent);
+            ctx.quadraticCurveTo(d.x + d.w, d.y + d.h, d.x + d.w - indent, d.y + d.h);
+            ctx.lineTo(d.x + indent, d.y + d.h);
+            ctx.quadraticCurveTo(d.x, d.y + d.h, d.x, d.y + d.h - indent);
+            ctx.lineTo(d.x, d.y + indent);
             ctx.closePath();
         }
 
         function render() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Dibujar encías/arcadas con más realismo
+            ctx.save();
+            
+            // Arcada superior
             ctx.beginPath();
-            ctx.moveTo(30, 100);
-            ctx.bezierCurveTo(300, 150, 300, 150, 570, 100);
-            ctx.moveTo(30, 280);
-            ctx.bezierCurveTo(300, 230, 300, 230, 570, 280);
-            ctx.lineWidth = 15;
-            ctx.strokeStyle = "rgba(231, 76, 60, 0.1)";
-            ctx.lineCap = "round";
+            ctx.moveTo(40, 110);
+            ctx.bezierCurveTo(200, 150, 450, 150, 610, 110);
+            ctx.lineWidth = 20;
+            ctx.strokeStyle = 'rgba(255, 182, 193, 0.15)';
+            ctx.lineCap = 'round';
             ctx.stroke();
 
-            dientes.forEach(d => {
-                dibujarFormaDiente(ctx, d);
+            // Línea de encía superior
+            ctx.beginPath();
+            ctx.moveTo(40, 100);
+            ctx.bezierCurveTo(200, 135, 450, 135, 610, 100);
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(231, 76, 60, 0.2)';
+            ctx.stroke();
 
-                let gradient = ctx.createLinearGradient(d.x, d.y, d.x + d.w, d.y + d.h);
+            // Arcada inferior
+            ctx.beginPath();
+            ctx.moveTo(40, 300);
+            ctx.bezierCurveTo(200, 260, 450, 260, 610, 300);
+            ctx.lineWidth = 20;
+            ctx.strokeStyle = 'rgba(255, 182, 193, 0.15)';
+            ctx.stroke();
 
-                if (d.selected) {
-                    gradient.addColorStop(0, '#3498db');
-                    gradient.addColorStop(1, '#2980b9');
-                    ctx.shadowColor = "rgba(41, 128, 185, 0.6)";
-                    ctx.shadowBlur = 15;
-                } else if (d.hover) {
-                    gradient.addColorStop(0, '#ffffff');
-                    gradient.addColorStop(1, '#dfe6e9');
-                    ctx.shadowColor = "rgba(0,0,0,0.3)";
-                    ctx.shadowBlur = 10;
-                } else {
-                    gradient.addColorStop(0, '#ffffff');
-                    gradient.addColorStop(1, '#ecf0f1');
-                    ctx.shadowColor = "rgba(0,0,0,0.2)";
-                    ctx.shadowBlur = 3;
-                }
+            // Línea de encía inferior
+            ctx.beginPath();
+            ctx.moveTo(40, 310);
+            ctx.bezierCurveTo(200, 275, 450, 275, 610, 310);
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(231, 76, 60, 0.2)';
+            ctx.stroke();
 
-                ctx.fillStyle = gradient;
-                ctx.fill();
-                ctx.lineWidth = 1;
-                ctx.strokeStyle = d.selected ? '#1a5276' : '#bdc3c7';
-                ctx.stroke();
+            ctx.restore();
 
-                ctx.shadowBlur = 0;
-                ctx.fillStyle = d.selected ? 'white' : '#7f8c8d';
-                ctx.font = "11px Arial";
-                ctx.textAlign = "center";
-                ctx.fillText(d.id, d.x + d.w / 2, d.y + d.h / 2 + 4);
-            });
+            // Dibujar todos los dientes
+            dientes.forEach(d => dibujarDiente(ctx, d));
         }
 
         function getDienteUnderMouse(e) {
@@ -486,12 +439,67 @@
             const mouseY = e.clientY - rect.top;
 
             for (let d of dientes) {
-                dibujarFormaDiente(ctx, d);
+                ctx.beginPath();
+                switch(d.tipo) {
+                    case 'incisivo': dibujarIncisivo(ctx, d); break;
+                    case 'canino': dibujarCanino(ctx, d); break;
+                    case 'premolar': dibujarPremolar(ctx, d); break;
+                    case 'molar': dibujarMolar(ctx, d); break;
+                }
+                
                 if (ctx.isPointInPath(mouseX, mouseY)) {
                     return d;
                 }
             }
             return null;
+        }
+
+        function getSeleccionadas() {
+            return dientes
+                .filter(d => d.selected)
+                .map(d => String(d.id));
+        }
+
+        function actualizarTexto() {
+            const sel = getSeleccionadas();
+            const texto = sel.length ? sel.join(', ') : 'Ninguna';
+
+            if (outputModal) {
+                outputModal.textContent = texto;
+            }
+
+            if (inputHidden) {
+                inputHidden.value = sel.join(',');
+            }
+
+            if (resumenOutside) {
+                if ('value' in resumenOutside) {
+                    resumenOutside.value = texto;
+                } else {
+                    resumenOutside.textContent = texto;
+                }
+            }
+        }
+
+        function inicializarDesdeHidden() {
+            if (!inputHidden || !inputHidden.value) {
+                dientes.forEach(d => d.selected = false);
+                render();
+                actualizarTexto();
+                return;
+            }
+
+            const codes = inputHidden.value
+                .split(',')
+                .map(v => v.trim())
+                .filter(v => v !== '');
+
+            dientes.forEach(d => {
+                d.selected = codes.includes(String(d.id));
+            });
+
+            render();
+            actualizarTexto();
         }
 
         canvas.addEventListener('mousemove', function(e) {
@@ -530,43 +538,10 @@
             render();
             actualizarTexto();
         });
-        // Ejemplo dentro del modal
-        function guardarOdontograma() {
-            const seleccionadas = obtenerPiezasSeleccionadas(); // tu lógica actual
-            if (window.syncPiezasTomografiaDesdeModal) {
-                window.syncPiezasTomografiaDesdeModal(seleccionadas);
-            }
-            $('#odontogramaModal').modal('hide');
-        }
 
-        function actualizarTexto() {
-            const sel = dientes.filter(d => d.selected).map(d => d.id);
-            const texto = sel.length ? sel.join(', ') : 'Ninguna';
-
-            if (outputModal) outputModal.textContent = texto;
-            if (inputHidden) inputHidden.value = sel.join(',');
-            if (resumenOutside) resumenOutside.textContent = texto || 'Ninguna';
-        }
-
-        // Inicializar selección desde el hidden (para edición)
-        function inicializarDesdeHidden() {
-            if (!inputHidden) return;
-            const value = (inputHidden.value || '').trim();
-            if (!value) return;
-
-            const codes = value.split(',').map(v => v.trim());
-            dientes.forEach(d => {
-                d.selected = codes.includes(String(d.id));
-            });
-            render();
-            actualizarTexto();
-        }
-
-        // Botones de abrir/cerrar
         function mostrarModal() {
             overlay.classList.add('show');
-            render();
-            actualizarTexto();
+            inicializarDesdeHidden();
         }
 
         function ocultarModal() {
@@ -579,25 +554,32 @@
                 mostrarModal();
             });
         }
+
         [btnClose, btnCerrar].forEach(b => {
-            if (b) b.addEventListener('click', function() {
-                ocultarModal();
-            });
+            if (b) b.addEventListener('click', ocultarModal);
         });
+
         if (btnAplicar) {
             btnAplicar.addEventListener('click', function() {
-                // ya se sincroniza en tiempo real con el hidden
+                const seleccionadas = getSeleccionadas();
+
+                if (window.syncPiezasTomografiaDesdeModal) {
+                    window.syncPiezasTomografiaDesdeModal(seleccionadas);
+                } else {
+                    actualizarTexto();
+                }
+
                 ocultarModal();
             });
         }
 
-        // Si clic fuera del modal, cerrar
         overlay.addEventListener('click', function(e) {
             if (e.target === overlay) {
                 ocultarModal();
             }
         });
 
-        inicializarDesdeHidden();
+        render();
+        actualizarTexto();
     })();
 </script>

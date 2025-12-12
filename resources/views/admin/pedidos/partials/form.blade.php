@@ -514,30 +514,39 @@
                 </div>
             </div>
         </details>
+{{-- Selector de piezas (odontograma) --}}
+<details class="mb-3">
+    <summary class="h6 mb-2">Odontograma – piezas seleccionadas</summary>
+    <p class="small text-muted mb-1">
+        Seleccione las piezas en el odontograma 3D.
+    </p>
 
-        {{-- Selector de piezas (odontograma) --}}
-        <details class="mb-3">
-            <summary class="h6 mb-2">Odontograma – piezas seleccionadas</summary>
-            <p class="small text-muted mb-1">
-                Seleccione las piezas en el odontograma 3D.
-            </p>
+    <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center mb-2">
+        <button type="button"
+                class="btn btn-outline-primary btn-sm mr-sm-2 mb-2 mb-sm-0"
+                id="btn-open-odontograma">
+            Abrir odontograma
+        </button>
 
-            <div class="d-flex align-items-center mb-2">
-                <button type="button" class="btn btn-outline-primary btn-sm mr-2" id="btn-open-odontograma"
-                    data-toggle="modal" data-target="#odontogramaModal">
-                    Abrir odontograma
-                </button>
-                <span class="small">
-                    Piezas actuales:
-                    <span id="piezas_tomografia_resumen">
-                        {{ $piezasTomografiaSeleccionadas ? implode(', ', $piezasTomografiaSeleccionadas) : 'Ninguna' }}
-                    </span>
-                </span>
-            </div>
+        <div class="flex-grow-1">
+            <label for="piezas_tomografia_resumen" class="small mb-1 d-block">
+                Piezas actuales
+            </label>
+            <input type="text"
+                   id="piezas_tomografia_resumen"
+                   class="form-control form-control-sm"
+                   value="{{ $piezasTomografiaSeleccionadas ? implode(', ', $piezasTomografiaSeleccionadas) : 'Ninguna' }}"
+                   readonly>
+        </div>
+    </div>
 
-            <input type="hidden" name="piezas_tomografia_codigos" id="piezas_tomografia_codigos"
-                value="{{ old('piezas_tomografia_codigos', $piezasTomografiaSeleccionadas ? implode(',', $piezasTomografiaSeleccionadas) : '') }}">
-        </details>
+    {{-- Este hidden es el que se envía al controlador --}}
+    <input type="hidden"
+           name="piezas_tomografia_codigos"
+           id="piezas_tomografia_codigos"
+           value="{{ old('piezas_tomografia_codigos', $piezasTomografiaSeleccionadas ? implode(',', $piezasTomografiaSeleccionadas) : '') }}">
+</details>
+
 
 
         <div class="form-group">
@@ -815,6 +824,32 @@
             };
         });
     </script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // El modal llamará a esta función pasándole un array de códigos (['15', '12', ...])
+        window.syncPiezasTomografiaDesdeModal = function (codigos) {
+            const inputTom   = document.getElementById('piezas_tomografia_codigos');
+            const resumenTxt = document.getElementById('piezas_tomografia_resumen');
+
+            const arr = (codigos || [])
+                .map(c => String(c).trim())
+                .filter(c => c !== '')
+                .filter((val, idx, self) => self.indexOf(val) === idx)
+                .sort((a, b) => a.localeCompare(b));
+
+            const csv = arr.join(',');
+
+            if (inputTom) {
+                inputTom.value = csv;              // lo que se guarda en BD
+            }
+
+            if (resumenTxt) {
+                // caja de texto visible
+                resumenTxt.value = arr.length ? arr.join(', ') : 'Ninguna';
+            }
+        };
+    });
+</script>
 
 
 </div>

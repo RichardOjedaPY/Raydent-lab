@@ -72,6 +72,9 @@ Route::middleware(['auth', 'role:admin'])
         Route::get('pedidos/{pedido}/pdf', [PedidoController::class, 'pdf'])
             ->name('admin.pedidos.pdf')
             ->middleware('permission:pedidos.view');
+        // ➕ Ruta PDF de pedido
+        Route::get('pedidos/{pedido}/pdf', [PedidoController::class, 'pdf'])
+            ->name('pedidos.pdf');
     });
 
 
