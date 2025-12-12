@@ -69,6 +69,9 @@ Route::middleware(['auth', 'role:admin'])
         // Pedidos
         Route::resource('pedidos', PedidoController::class)
             ->parameters(['pedidos' => 'pedido']);
+        Route::get('pedidos/{pedido}/pdf', [PedidoController::class, 'pdf'])
+            ->name('admin.pedidos.pdf')
+            ->middleware('permission:pedidos.view');
     });
 
 

@@ -12,6 +12,7 @@ use App\Models\PedidoPieza;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class PedidoController extends Controller
 {
@@ -83,147 +84,152 @@ public function index(Request $request)
 
     // Form crear
     public function create(Request $request)
-    {
-        $pedido = new Pedido();
+{
+    $pedido = new Pedido();
 
-        $clinicas = Clinica::where('is_active', true)
-            ->orderBy('nombre')
-            ->get();
+    $clinicas = Clinica::where('is_active', true)->orderBy('nombre')->get();
+    $pacientes = Paciente::with('clinica')->orderBy('apellido')->orderBy('nombre')->get();
 
-        $pacientes = Paciente::with('clinica')
-            ->orderBy('apellido')
-            ->orderBy('nombre')
-            ->get();
+    [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
 
-        // Listas para checkboxes
-        [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
+    $fotosSeleccionadas             = [];
+    $cefalometriasSeleccionadas     = [];
+    $piezasPeriapicalSeleccionadas  = [];
+    $piezasTomografiaSeleccionadas  = [];
 
-        $fotosSeleccionadas        = [];
-        $cefalometriasSeleccionadas = [];
-        $piezasSeleccionadas       = [];
+    // Solo para mostrar en el form (el que realmente se guarda se genera en store)
+    $codigoPedidoSugerido = Pedido::generarCodigoPedido();
 
-        return view('admin.pedidos.create', compact(
-            'pedido',
-            'clinicas',
-            'pacientes',
-            'fotosTipos',
-            'cefalometriasTipos',
-            'documentaciones',
-            'fotosSeleccionadas',
-            'cefalometriasSeleccionadas',
-            'piezasSeleccionadas'
-        ));
-    }
+    return view('admin.pedidos.create', compact(
+        'pedido',
+        'clinicas',
+        'pacientes',
+        'fotosTipos',
+        'cefalometriasTipos',
+        'documentaciones',
+        'fotosSeleccionadas',
+        'cefalometriasSeleccionadas',
+        'piezasPeriapicalSeleccionadas',
+        'piezasTomografiaSeleccionadas',
+        'codigoPedidoSugerido'
+    ));
+}
 
     // Guardar
-    public function store(Request $request)
-    {
-        [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
+public function store(Request $request)
+{
+    [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
 
-        $data = $request->validate([
-            'clinica_id'        => ['required', 'integer', 'exists:clinicas,id'],
-            'paciente_id'       => ['required', 'integer', 'exists:pacientes,id'],
-            'consulta_id'       => ['nullable', 'integer', 'exists:consultas,id'],
-            'prioridad'         => ['nullable', Rule::in(['normal', 'urgente'])],
-            'fecha_agendada'    => ['nullable', 'date'],
-            'hora_agendada'     => ['nullable', 'date_format:H:i'],
-            'doctor_nombre'     => ['nullable', 'string', 'max:120'],
-            'doctor_telefono'   => ['nullable', 'string', 'max:50'],
-            'doctor_email'      => ['nullable', 'string', 'max:120'],
-            'paciente_documento' => ['nullable', 'string', 'max:50'],
-            'direccion'         => ['nullable', 'string', 'max:255'],
+    $data = $request->validate([
+        'clinica_id'          => ['required', 'integer', 'exists:clinicas,id'],
+        'paciente_id'         => ['required', 'integer', 'exists:pacientes,id'],
+        'consulta_id'         => ['nullable', 'integer', 'exists:consultas,id'],
+        'prioridad'           => ['nullable', Rule::in(['normal', 'urgente'])],
+        'fecha_agendada'      => ['nullable', 'date'],
+        'hora_agendada'       => ['nullable', 'date_format:H:i'],
+        'doctor_nombre'       => ['nullable', 'string', 'max:120'],
+        'doctor_telefono'     => ['nullable', 'string', 'max:50'],
+        'doctor_email'        => ['nullable', 'string', 'max:120'],
+        'paciente_documento'  => ['nullable', 'string', 'max:50'],
+        'direccion'           => ['nullable', 'string', 'max:255'],
 
-            'rx_panoramica_trazado_region' => ['nullable', 'string', 'max:120'],
-            'rx_periapical_region'         => ['nullable', 'string', 'max:150'],
+        'rx_panoramica_trazado_region' => ['nullable', 'string', 'max:120'],
+        'rx_periapical_region'         => ['nullable', 'string', 'max:150'],
 
-            'ct_parcial_zona'              => ['nullable', 'string', 'max:150'],
-            'entrega_software_detalle'     => ['nullable', 'string', 'max:150'],
+        'ct_parcial_zona'              => ['nullable', 'string', 'max:150'],
+        'entrega_software_detalle'     => ['nullable', 'string', 'max:150'],
 
-            'documentacion_tipo' => ['nullable', Rule::in(array_keys($documentaciones))],
+        'documentacion_tipo'           => ['nullable', Rule::in(array_keys($documentaciones))],
+        'descripcion_caso'             => ['nullable', 'string'],
 
-            'descripcion_caso'   => ['nullable', 'string'],
+        'fotos'                        => ['nullable', 'array'],
+        'fotos.*'                      => ['string', Rule::in(array_keys($fotosTipos))],
 
-            'fotos'              => ['nullable', 'array'],
-            'fotos.*'            => ['string', Rule::in(array_keys($fotosTipos))],
+        'cefalometrias'                => ['nullable', 'array'],
+        'cefalometrias.*'              => ['string', Rule::in(array_keys($cefalometriasTipos))],
 
-            'cefalometrias'      => ['nullable', 'array'],
-            'cefalometrias.*'    => ['string', Rule::in(array_keys($cefalometriasTipos))],
+        // CSV de piezas desde el odontograma (mismo nombre que ya usas en el form)
+        'piezas_codigos'               => ['nullable', 'string'],
+    ]);
 
-            // CSV de piezas desde el odontograma
-            'piezas_codigos'     => ['nullable', 'string'],
-        ]);
+    $pedido = new Pedido();
 
-        $pedido = new Pedido();
+    $pedido->clinica_id         = $data['clinica_id'];
+    $pedido->paciente_id        = $data['paciente_id'];
+    $pedido->consulta_id        = $data['consulta_id'] ?? null;
+    $pedido->created_by         = Auth::id();
 
-        $pedido->clinica_id         = $data['clinica_id'];
-        $pedido->paciente_id        = $data['paciente_id'];
-        $pedido->consulta_id        = $data['consulta_id'] ?? null;
-        $pedido->created_by         = Auth::id();
-        $pedido->codigo             = $this->generarCodigo();
-        $pedido->estado             = 'pendiente';
-        $pedido->prioridad          = $data['prioridad'] ?? 'normal';
-        $pedido->fecha_solicitud    = now()->toDateString();
-        $pedido->fecha_agendada     = $data['fecha_agendada'] ?? null;
-        $pedido->hora_agendada      = $data['hora_agendada'] ?? null;
+    // Código interno que ya tenías
+    $pedido->codigo             = $this->generarCodigo();
 
-        $pedido->doctor_nombre      = $data['doctor_nombre'] ?? null;
-        $pedido->doctor_telefono    = $data['doctor_telefono'] ?? null;
-        $pedido->doctor_email       = $data['doctor_email'] ?? null;
-        $pedido->paciente_documento = $data['paciente_documento'] ?? null;
-        $pedido->direccion          = $data['direccion'] ?? null;
+    // NUEVO: N° de documento tipo RD-000000001 (único en la tabla)
+    $pedido->codigo_pedido      = Pedido::generarCodigoPedido();
 
-        $pedido->rx_panoramica_trazado_region = $data['rx_panoramica_trazado_region'] ?? null;
-        $pedido->rx_periapical_region         = $data['rx_periapical_region'] ?? null;
-        $pedido->ct_parcial_zona              = $data['ct_parcial_zona'] ?? null;
-        $pedido->entrega_software_detalle     = $data['entrega_software_detalle'] ?? null;
+    $pedido->estado             = 'pendiente';
+    $pedido->prioridad          = $data['prioridad'] ?? 'normal';
+    $pedido->fecha_solicitud    = now()->toDateString();
+    $pedido->fecha_agendada     = $data['fecha_agendada'] ?? null;
+    $pedido->hora_agendada      = $data['hora_agendada'] ?? null;
 
-        $pedido->documentacion_tipo           = $data['documentacion_tipo'] ?? null;
-        $pedido->descripcion_caso             = $data['descripcion_caso'] ?? null;
+    $pedido->doctor_nombre      = $data['doctor_nombre'] ?? null;
+    $pedido->doctor_telefono    = $data['doctor_telefono'] ?? null;
+    $pedido->doctor_email       = $data['doctor_email'] ?? null;
+    $pedido->paciente_documento = $data['paciente_documento'] ?? null;
+    $pedido->direccion          = $data['direccion'] ?? null;
 
-        // Booleans: tomados desde checkboxes
-        foreach ($this->booleanFields() as $field) {
-            $pedido->{$field} = $request->boolean($field);
-        }
+    $pedido->rx_panoramica_trazado_region = $data['rx_panoramica_trazado_region'] ?? null;
+    $pedido->rx_periapical_region         = $data['rx_periapical_region'] ?? null;
+    $pedido->ct_parcial_zona              = $data['ct_parcial_zona'] ?? null;
+    $pedido->entrega_software_detalle     = $data['entrega_software_detalle'] ?? null;
 
-        $pedido->save();
+    $pedido->documentacion_tipo           = $data['documentacion_tipo'] ?? null;
+    $pedido->descripcion_caso             = $data['descripcion_caso'] ?? null;
 
-        // Fotos
-        $fotos = $request->input('fotos', []);
-        foreach ($fotos as $tipo) {
-            PedidoFoto::create([
-                'pedido_id' => $pedido->id,
-                'tipo'      => $tipo,
-            ]);
-        }
-
-        // Cefalometrías
-        $cefas = $request->input('cefalometrias', []);
-        foreach ($cefas as $tipo) {
-            PedidoCefalometria::create([
-                'pedido_id' => $pedido->id,
-                'tipo'      => $tipo,
-            ]);
-        }
-
-        // Piezas desde odontograma (CSV → array)
-        $piezasCodigos = collect(explode(',', (string) $request->input('piezas_codigos', '')))
-            ->map(fn($v) => trim($v))
-            ->filter()
-            ->unique()
-            ->values();
-
-        foreach ($piezasCodigos as $pieza) {
-            PedidoPieza::create([
-                'pedido_id'    => $pedido->id,
-                'pieza_codigo' => $pieza,
-                'tipo'         => 'periapical',
-            ]);
-        }
-
-        return redirect()
-            ->route('admin.pedidos.index')
-            ->with('success', 'Pedido creado correctamente.');
+    // Booleans: tomados desde checkboxes
+    foreach ($this->booleanFields() as $field) {
+        $pedido->{$field} = $request->boolean($field);
     }
+
+    $pedido->save();
+
+    // Fotos
+    $fotos = $request->input('fotos', []);
+    foreach ($fotos as $tipo) {
+        PedidoFoto::create([
+            'pedido_id' => $pedido->id,
+            'tipo'      => $tipo,
+        ]);
+    }
+
+    // Cefalometrías
+    $cefas = $request->input('cefalometrias', []);
+    foreach ($cefas as $tipo) {
+        PedidoCefalometria::create([
+            'pedido_id' => $pedido->id,
+            'tipo'      => $tipo,
+        ]);
+    }
+
+    // Piezas desde odontograma (CSV → array)
+    $piezasCodigos = collect(explode(',', (string) $request->input('piezas_codigos', '')))
+        ->map(fn ($v) => trim($v))
+        ->filter()
+        ->unique()
+        ->values();
+
+    foreach ($piezasCodigos as $pieza) {
+        PedidoPieza::create([
+            'pedido_id'    => $pedido->id,
+            'pieza_codigo' => $pieza,
+            'tipo'         => 'periapical', // por ahora seguimos usando un solo tipo
+        ]);
+    }
+
+    return redirect()
+        ->route('admin.pedidos.index')
+        ->with('success', 'Pedido creado correctamente.');
+}
+
 
     // Mostrar detalle simple (lo podemos enriquecer luego)
     public function show(Pedido $pedido)
@@ -494,4 +500,15 @@ public function index(Request $request)
             'finalidad_patologia',
         ];
     }
+
+    public function pdf(Pedido $pedido)
+{
+    $pedido->load(['clinica', 'paciente', 'fotos', 'cefalometrias', 'piezas']);
+
+    $pdf = Pdf::loadView('admin.pedidos.pdf', compact('pedido'))
+        ->setPaper('A4', 'portrait');
+
+    return $pdf->download("pedido-{$pedido->codigo}.pdf");
+}
+
 }

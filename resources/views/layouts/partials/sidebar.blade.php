@@ -86,16 +86,16 @@
                          </a>
                      </li>
                  @endcan
-{{-- PEDIDOS --}}
-@can('pedidos.view')
-    <li class="nav-item">
-        <a href="{{ route('admin.pedidos.index') }}"
-           class="nav-link {{ request()->routeIs('admin.pedidos.*') ? 'active' : '' }}">
-            <i class="nav-icon fas fa-file-medical"></i>
-            <p>Pedidos</p>
-        </a>
-    </li>
-@endcan
+                 {{-- PEDIDOS --}}
+                 @can('pedidos.view')
+                     <li class="nav-item">
+                         <a href="{{ route('admin.pedidos.index') }}"
+                             class="nav-link {{ request()->routeIs('admin.pedidos.*') ? 'active' : '' }}">
+                             <i class="nav-icon fas fa-file-medical"></i>
+                             <p>Pedidos</p>
+                         </a>
+                     </li>
+                 @endcan
 
 
 

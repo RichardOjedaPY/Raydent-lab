@@ -9,9 +9,11 @@
         justify-content: center;
         z-index: 1050;
     }
+
     .odo-modal-backdrop.show {
         display: flex;
     }
+
     .odo-modal {
         background: #f4f7f6;
         border-radius: 10px;
@@ -20,15 +22,18 @@
         padding: 20px;
         box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
     }
+
     .odo-modal-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 10px;
     }
+
     .odo-modal-header h5 {
         margin: 0;
     }
+
     .odo-close-btn {
         border: none;
         background: transparent;
@@ -36,13 +41,14 @@
         cursor: pointer;
         color: #7f8c8d;
     }
+
     .odo-close-btn:hover {
         color: #e74c3c;
     }
 
     .canvas-container {
         position: relative;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
         border-radius: 12px;
         overflow: hidden;
         background: #fff;
@@ -60,21 +66,24 @@
         padding: 10px 15px;
         background: #fff;
         border-left: 5px solid #3498db;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
         border-radius: 4px;
         display: flex;
         justify-content: space-between;
         align-items: center;
         font-size: 0.9rem;
     }
+
     .odo-panel-info .etiqueta {
         font-weight: bold;
         color: #34495e;
     }
+
     #lista-seleccion {
         color: #e74c3c;
         font-weight: 600;
     }
+
     #btn-limpiar-odo {
         background-color: #ecf0f1;
         border: 1px solid #bdc3c7;
@@ -85,6 +94,7 @@
         transition: all 0.2s;
         font-size: 0.85rem;
     }
+
     #btn-limpiar-odo:hover {
         background-color: #bdc3c7;
         color: white;
@@ -133,11 +143,11 @@
 </div>
 
 <script>
-    (function () {
+    (function() {
         const overlay = document.getElementById('odontograma-overlay');
-        const btnOpen  = document.getElementById('btn-open-odontograma');
+        const btnOpen = document.getElementById('btn-open-odontograma');
         const btnClose = document.getElementById('odo-btn-close');
-        const btnCerrar= document.getElementById('odo-btn-cerrar');
+        const btnCerrar = document.getElementById('odo-btn-cerrar');
         const btnAplicar = document.getElementById('odo-btn-aplicar');
         const btnLimpiar = document.getElementById('btn-limpiar-odo');
 
@@ -150,42 +160,265 @@
         const resumenOutside = document.getElementById('piezas_codigos_resumen');
 
         // ---- datos de dientes (igual que tu ejemplo) ----
-        let dientes = [
-            { id: 18, x: 40,  y: 80,  w: 28, h: 35, selected: false },
-            { id: 17, x: 75,  y: 70,  w: 28, h: 35, selected: false },
-            { id: 16, x: 110, y: 60,  w: 30, h: 38, selected: false },
-            { id: 15, x: 145, y: 55,  w: 25, h: 35, selected: false },
-            { id: 14, x: 175, y: 50,  w: 25, h: 35, selected: false },
-            { id: 13, x: 205, y: 50,  w: 25, h: 38, selected: false },
-            { id: 12, x: 235, y: 55,  w: 22, h: 35, selected: false },
-            { id: 11, x: 265, y: 60,  w: 30, h: 40, selected: false },
+        let dientes = [{
+                id: 18,
+                x: 40,
+                y: 80,
+                w: 28,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 17,
+                x: 75,
+                y: 70,
+                w: 28,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 16,
+                x: 110,
+                y: 60,
+                w: 30,
+                h: 38,
+                selected: false
+            },
+            {
+                id: 15,
+                x: 145,
+                y: 55,
+                w: 25,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 14,
+                x: 175,
+                y: 50,
+                w: 25,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 13,
+                x: 205,
+                y: 50,
+                w: 25,
+                h: 38,
+                selected: false
+            },
+            {
+                id: 12,
+                x: 235,
+                y: 55,
+                w: 22,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 11,
+                x: 265,
+                y: 60,
+                w: 30,
+                h: 40,
+                selected: false
+            },
 
-            { id: 21, x: 305, y: 60,  w: 30, h: 40, selected: false },
-            { id: 22, x: 340, y: 55,  w: 22, h: 35, selected: false },
-            { id: 23, x: 370, y: 50,  w: 25, h: 38, selected: false },
-            { id: 24, x: 400, y: 50,  w: 25, h: 35, selected: false },
-            { id: 25, x: 430, y: 55,  w: 25, h: 35, selected: false },
-            { id: 26, x: 460, y: 60,  w: 30, h: 38, selected: false },
-            { id: 27, x: 495, y: 70,  w: 28, h: 35, selected: false },
-            { id: 28, x: 530, y: 80,  w: 28, h: 35, selected: false },
+            {
+                id: 21,
+                x: 305,
+                y: 60,
+                w: 30,
+                h: 40,
+                selected: false
+            },
+            {
+                id: 22,
+                x: 340,
+                y: 55,
+                w: 22,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 23,
+                x: 370,
+                y: 50,
+                w: 25,
+                h: 38,
+                selected: false
+            },
+            {
+                id: 24,
+                x: 400,
+                y: 50,
+                w: 25,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 25,
+                x: 430,
+                y: 55,
+                w: 25,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 26,
+                x: 460,
+                y: 60,
+                w: 30,
+                h: 38,
+                selected: false
+            },
+            {
+                id: 27,
+                x: 495,
+                y: 70,
+                w: 28,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 28,
+                x: 530,
+                y: 80,
+                w: 28,
+                h: 35,
+                selected: false
+            },
 
-            { id: 48, x: 40,  y: 220, w: 28, h: 35, selected: false },
-            { id: 47, x: 75,  y: 230, w: 28, h: 35, selected: false },
-            { id: 46, x: 110, y: 240, w: 30, h: 38, selected: false },
-            { id: 45, x: 145, y: 245, w: 25, h: 35, selected: false },
-            { id: 44, x: 175, y: 250, w: 25, h: 35, selected: false },
-            { id: 43, x: 205, y: 250, w: 25, h: 38, selected: false },
-            { id: 42, x: 235, y: 245, w: 22, h: 35, selected: false },
-            { id: 41, x: 265, y: 240, w: 30, h: 40, selected: false },
+            {
+                id: 48,
+                x: 40,
+                y: 220,
+                w: 28,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 47,
+                x: 75,
+                y: 230,
+                w: 28,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 46,
+                x: 110,
+                y: 240,
+                w: 30,
+                h: 38,
+                selected: false
+            },
+            {
+                id: 45,
+                x: 145,
+                y: 245,
+                w: 25,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 44,
+                x: 175,
+                y: 250,
+                w: 25,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 43,
+                x: 205,
+                y: 250,
+                w: 25,
+                h: 38,
+                selected: false
+            },
+            {
+                id: 42,
+                x: 235,
+                y: 245,
+                w: 22,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 41,
+                x: 265,
+                y: 240,
+                w: 30,
+                h: 40,
+                selected: false
+            },
 
-            { id: 31, x: 305, y: 240, w: 30, h: 40, selected: false },
-            { id: 32, x: 340, y: 245, w: 22, h: 35, selected: false },
-            { id: 33, x: 370, y: 250, w: 25, h: 38, selected: false },
-            { id: 34, x: 400, y: 250, w: 25, h: 35, selected: false },
-            { id: 35, x: 430, y: 245, w: 25, h: 35, selected: false },
-            { id: 36, x: 460, y: 240, w: 30, h: 38, selected: false },
-            { id: 37, x: 495, y: 230, w: 28, h: 35, selected: false },
-            { id: 38, x: 530, y: 220, w: 28, h: 35, selected: false },
+            {
+                id: 31,
+                x: 305,
+                y: 240,
+                w: 30,
+                h: 40,
+                selected: false
+            },
+            {
+                id: 32,
+                x: 340,
+                y: 245,
+                w: 22,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 33,
+                x: 370,
+                y: 250,
+                w: 25,
+                h: 38,
+                selected: false
+            },
+            {
+                id: 34,
+                x: 400,
+                y: 250,
+                w: 25,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 35,
+                x: 430,
+                y: 245,
+                w: 25,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 36,
+                x: 460,
+                y: 240,
+                w: 30,
+                h: 38,
+                selected: false
+            },
+            {
+                id: 37,
+                x: 495,
+                y: 230,
+                w: 28,
+                h: 35,
+                selected: false
+            },
+            {
+                id: 38,
+                x: 530,
+                y: 220,
+                w: 28,
+                h: 35,
+                selected: false
+            },
         ];
 
         function dibujarFormaDiente(ctx, d) {
@@ -193,7 +426,8 @@
             ctx.moveTo(d.x, d.y + 5);
             ctx.bezierCurveTo(d.x + 5, d.y - 5, d.x + d.w - 5, d.y - 5, d.x + d.w, d.y + 5);
             ctx.lineTo(d.x + d.w - 2, d.y + d.h - 10);
-            ctx.bezierCurveTo(d.x + d.w / 2 + 5, d.y + d.h + 5, d.x + d.w / 2 - 5, d.y + d.h + 5, d.x + 2, d.y + d.h - 10);
+            ctx.bezierCurveTo(d.x + d.w / 2 + 5, d.y + d.h + 5, d.x + d.w / 2 - 5, d.y + d.h + 5, d.x + 2, d.y + d
+                .h - 10);
             ctx.closePath();
         }
 
@@ -260,7 +494,7 @@
             return null;
         }
 
-        canvas.addEventListener('mousemove', function (e) {
+        canvas.addEventListener('mousemove', function(e) {
             const diente = getDienteUnderMouse(e);
             let needsRender = false;
 
@@ -282,7 +516,7 @@
             if (needsRender) render();
         });
 
-        canvas.addEventListener('click', function (e) {
+        canvas.addEventListener('click', function(e) {
             const diente = getDienteUnderMouse(e);
             if (diente) {
                 diente.selected = !diente.selected;
@@ -296,13 +530,21 @@
             render();
             actualizarTexto();
         });
+        // Ejemplo dentro del modal
+        function guardarOdontograma() {
+            const seleccionadas = obtenerPiezasSeleccionadas(); // tu lógica actual
+            if (window.syncPiezasTomografiaDesdeModal) {
+                window.syncPiezasTomografiaDesdeModal(seleccionadas);
+            }
+            $('#odontogramaModal').modal('hide');
+        }
 
         function actualizarTexto() {
             const sel = dientes.filter(d => d.selected).map(d => d.id);
             const texto = sel.length ? sel.join(', ') : 'Ninguna';
 
             if (outputModal) outputModal.textContent = texto;
-            if (inputHidden)  inputHidden.value  = sel.join(',');
+            if (inputHidden) inputHidden.value = sel.join(',');
             if (resumenOutside) resumenOutside.textContent = texto || 'Ninguna';
         }
 
@@ -326,28 +568,31 @@
             render();
             actualizarTexto();
         }
+
         function ocultarModal() {
             overlay.classList.remove('show');
         }
 
         if (btnOpen) {
-            btnOpen.addEventListener('click', function (e) {
+            btnOpen.addEventListener('click', function(e) {
                 e.preventDefault();
                 mostrarModal();
             });
         }
         [btnClose, btnCerrar].forEach(b => {
-            if (b) b.addEventListener('click', function () { ocultarModal(); });
+            if (b) b.addEventListener('click', function() {
+                ocultarModal();
+            });
         });
         if (btnAplicar) {
-            btnAplicar.addEventListener('click', function () {
+            btnAplicar.addEventListener('click', function() {
                 // ya se sincroniza en tiempo real con el hidden
                 ocultarModal();
             });
         }
 
         // Si clic fuera del modal, cerrar
-        overlay.addEventListener('click', function (e) {
+        overlay.addEventListener('click', function(e) {
             if (e.target === overlay) {
                 ocultarModal();
             }

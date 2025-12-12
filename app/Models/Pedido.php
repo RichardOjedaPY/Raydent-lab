@@ -83,6 +83,22 @@ class Pedido extends Model
         'rx_con_informe'        => 'boolean',
         // aquí puedes castear todos los booleanos si quieres
     ];
+    public static function generarCodigoPedido(): string
+    {
+        $ultimoPedido = self::where('codigo_pedido', 'like', 'RD-%')
+            ->orderByDesc('id')
+            ->first();
+
+        $ultimoNumero = 0;
+
+        if ($ultimoPedido && preg_match('/RD-(\d+)/i', $ultimoPedido->codigo_pedido, $matches)) {
+            $ultimoNumero = (int) $matches[1];
+        }
+
+        $nuevoNumero = $ultimoNumero + 1;
+
+        return 'RD-' . str_pad((string) $nuevoNumero, 9, '0', STR_PAD_LEFT);
+    }
 
     // Relaciones básicas
     public function clinica()
