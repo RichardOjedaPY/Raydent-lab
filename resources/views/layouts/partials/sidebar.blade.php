@@ -77,6 +77,27 @@
                      </li>
                  @endcan
 
+                 @can('consultas.view')
+                     <li class="nav-item">
+                         <a href="{{ route('admin.consultas.index') }}"
+                             class="nav-link {{ request()->routeIs('admin.consultas.*') ? 'active' : '' }}">
+                             <i class="nav-icon fas fa-notes-medical"></i>
+                             <p>Consultas</p>
+                         </a>
+                     </li>
+                 @endcan
+{{-- PEDIDOS --}}
+@can('pedidos.view')
+    <li class="nav-item">
+        <a href="{{ route('admin.pedidos.index') }}"
+           class="nav-link {{ request()->routeIs('admin.pedidos.*') ? 'active' : '' }}">
+            <i class="nav-icon fas fa-file-medical"></i>
+            <p>Pedidos</p>
+        </a>
+    </li>
+@endcan
+
+
 
              </ul>
          </nav>

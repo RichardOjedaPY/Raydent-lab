@@ -7,6 +7,9 @@ use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\ClinicaController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\PacienteController;
+use App\Http\Controllers\Admin\ConsultaController;
+use App\Http\Controllers\Admin\PedidoController;
+
 
 
 Route::get('/', function () {
@@ -60,6 +63,12 @@ Route::middleware(['auth', 'role:admin'])
 
         Route::patch('pacientes/{paciente}/toggle-status', [PacienteController::class, 'toggleStatus'])
             ->name('pacientes.toggle-status');
+        // Consultas
+        Route::resource('consultas', ConsultaController::class)
+            ->parameters(['consultas' => 'consulta']);
+        // Pedidos
+        Route::resource('pedidos', PedidoController::class)
+            ->parameters(['pedidos' => 'pedido']);
     });
 
 

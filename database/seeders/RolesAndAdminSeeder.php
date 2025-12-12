@@ -11,26 +11,19 @@ class RolesAndAdminSeeder extends Seeder
 {
     public function run(): void
     {
-        // ─────────────────────────────────────────────
         // 1) Normalizar roles
-        // ─────────────────────────────────────────────
-
-        // Renombrar 'cliente' -> 'clinica' si existía
         $cliente = Role::where('name', 'cliente')->first();
         if ($cliente) {
             $cliente->name = 'clinica';
             $cliente->save();
         }
 
-        // Crear roles base
         $admin   = Role::firstOrCreate(['name' => 'admin',   'guard_name' => 'web']);
         $tecnico = Role::firstOrCreate(['name' => 'tecnico', 'guard_name' => 'web']);
         $clinica = Role::firstOrCreate(['name' => 'clinica', 'guard_name' => 'web']);
 
-        // ─────────────────────────────────────────────
         // 2) Crear permisos por módulo y acción
-        // ─────────────────────────────────────────────
-        // Limpiamos permisos viejos (si quedaron de pruebas)
+        // Borramos permisos viejos de pruebas
         Permission::whereIn('name', [
             'clinicas.manage', 'clinicas.view',
             'pacientes.manage', 'pacientes.view',
@@ -38,7 +31,8 @@ class RolesAndAdminSeeder extends Seeder
             'usuarios.manage',  'usuarios.view',
         ])->delete();
 
-        $modulos  = ['usuarios', 'clinicas', 'pacientes', 'pedidos'];
+        // 🔹 AQUI incluimos CONSULTAS como nuevo módulo
+        $modulos  = ['usuarios', 'clinicas', 'pacientes', 'consultas', 'pedidos'];
         $acciones = ['view', 'create', 'update', 'delete'];
 
         $permisosCreados = [];
@@ -54,34 +48,35 @@ class RolesAndAdminSeeder extends Seeder
             }
         }
 
-        // ─────────────────────────────────────────────
-        // 3) Asignar permisos por defecto a cada rol
-        // ─────────────────────────────────────────────
+        // 3) Asignar permisos por defecto
 
-        // Admin tiene todo
+        // Admin: todo
         $admin->syncPermissions($permisosCreados);
 
-        // Técnico: puede trabajar con pacientes y pedidos (CRUD),
-        // pero no toca usuarios ni clínicas
+        // Técnico: trabaja con pacientes, consultas (solo ver) y pedidos
         $tecnicoPerms = [
+            // pacientes
             'pacientes.view', 'pacientes.create', 'pacientes.update', 'pacientes.delete',
-            'pedidos.view',   'pedidos.create',   'pedidos.update',   'pedidos.delete',
+            // consultas (por ahora solo ver)
+            'consultas.view',
+            // pedidos
+            'pedidos.view', 'pedidos.create', 'pedidos.update', 'pedidos.delete',
         ];
         $tecnico->syncPermissions($tecnicoPerms);
 
-        // Clínica: puede manejar SUS pacientes y pedidos,
-        // pero sin borrar (por ejemplo) – lo ajustamos si quieres
+        // Clínica: maneja sus pacientes, consultas y pedidos (sin borrar por defecto)
         $clinicaPerms = [
+            // pacientes
             'pacientes.view', 'pacientes.create', 'pacientes.update',
-            'pedidos.view',   'pedidos.create',   'pedidos.update',
+            // consultas
+            'consultas.view', 'consultas.create', 'consultas.update',
+            // pedidos
+            'pedidos.view', 'pedidos.create', 'pedidos.update',
         ];
         $clinica->syncPermissions($clinicaPerms);
 
-        // ─────────────────────────────────────────────
-        // 4) Asegurar que el primer usuario sea admin
-        // ─────────────────────────────────────────────
+        // 4) Primer usuario = admin
         $user = User::orderBy('id')->first();
-
         if ($user) {
             $user->syncRoles([$admin->name]);
             $user->is_active = true;
