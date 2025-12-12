@@ -302,12 +302,17 @@ class PedidoController extends Controller
             ]);
         }
     }
-
     public function show(Pedido $pedido)
     {
         $pedido->load(['clinica', 'paciente', 'fotos', 'cefalometrias', 'piezas']);
-        return view('admin.pedidos.show', compact('pedido'));
+    
+        [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
+    
+        return view('admin.pedidos.show', compact(
+            'pedido', 'fotosTipos', 'cefalometriasTipos', 'documentaciones'
+        ));
     }
+    
 
     public function destroy(Pedido $pedido)
     {
