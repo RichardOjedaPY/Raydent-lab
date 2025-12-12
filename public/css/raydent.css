@@ -1,0 +1,102 @@
+/* public/css/raydent.css */
+
+/* Paleta Raydent */
+:root {
+    --raydent-primary: #00c8ff;        /* celeste principal */
+    --raydent-primary-dark: #0090bf;   /* celeste más oscuro */
+    --raydent-sidebar-bg: #020202;     /* casi negro */
+    --raydent-sidebar-text: #e5f7ff;   /* texto claro */
+}
+
+/* Sidebar fondo negro Raydent */
+.main-sidebar {
+    background-color: var(--raydent-sidebar-bg) !important;
+}
+
+/* Marca Raydent arriba del sidebar */
+.brand-link {
+    background-color: #000000;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--raydent-sidebar-text) !important;
+}
+
+.brand-link .brand-text {
+    font-weight: 500;
+    letter-spacing: 0.02em;
+}
+
+/* Texto del sidebar */
+.nav-sidebar .nav-link {
+    color: #d1d5db; /* gris claro */
+    font-size: 0.95rem;
+}
+
+/* Iconos del sidebar */
+.nav-sidebar .nav-link .nav-icon {
+    color: #9ca3af;
+}
+
+/* Hover en items del menú */
+.nav-sidebar .nav-link:hover {
+    background-color: rgba(0, 200, 255, 0.16);
+    color: #f9fafb;
+}
+
+/* Item activo en Raydent celeste */
+.nav-sidebar .nav-link.active {
+    background-color: var(--raydent-primary) !important;
+    color: #020617 !important; /* casi negro */
+}
+
+.nav-sidebar .nav-link.active .nav-icon {
+    color: #020617 !important;
+}
+
+/* Panel de usuario: icono celeste Raydent */
+.user-panel .image i {
+    color: var(--raydent-primary);
+}
+
+/* Footer más discreto */
+.main-footer {
+    background-color: #f9fafb;
+    color: #6b7280;
+    border-top: 1px solid #e5e7eb;
+    font-size: 0.8rem;
+}
+/* ──────────────────────────────
+   NAVBAR RAYDENT
+   ────────────────────────────── */
+
+   .raydent-navbar {
+    background-color: #020202; /* mismo negro que el sidebar */
+    border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.raydent-navbar .nav-link {
+    color: #e5f7ff !important; /* texto claro */
+}
+
+.raydent-navbar .nav-link:hover {
+    color: var(--raydent-primary) !important;
+}
+
+/* Dropdown del usuario en modo oscuro */
+.raydent-dropdown {
+    background-color: #020617;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    min-width: 220px;
+}
+
+.raydent-dropdown .dropdown-item-text {
+    color: #e5e7eb;
+}
+
+.raydent-dropdown .dropdown-item {
+    color: #e5e7eb;
+}
+
+.raydent-dropdown .dropdown-item:hover {
+    background-color: rgba(0, 200, 255, 0.16);
+    color: #f9fafb;
+}
