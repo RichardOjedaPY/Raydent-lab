@@ -5,29 +5,29 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Clinica extends Model
+class Paciente extends Model
 {
     use HasFactory;
 
     protected $fillable = [
+        'clinica_id',
         'nombre',
-        'ruc',
-        'direccion',
-        'ciudad',
+        'apellido',
+        'documento',
+        'fecha_nacimiento',
+        'genero',
         'telefono',
         'email',
-        'plan',
+        'direccion',
+        'ciudad',
         'is_active',
         'observaciones',
     ];
 
-    public function users()
+    public function clinica()
     {
-        return $this->hasMany(User::class);
+        return $this->belongsTo(Clinica::class);
     }
-    public function pacientes()
-{
-    return $this->hasMany(Paciente::class);
-}
 
+  
 }

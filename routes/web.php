@@ -6,6 +6,8 @@ use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\ClinicaController;
 use App\Http\Controllers\Admin\PermissionController;
+use App\Http\Controllers\Admin\PacienteController;
+
 
 Route::get('/', function () {
     return view('welcome');
@@ -52,6 +54,12 @@ Route::middleware(['auth', 'role:admin'])
 
         Route::post('permissions/roles/{role}', [PermissionController::class, 'updateRole'])
             ->name('permissions.update-role');
+        // Pacientes
+        Route::resource('pacientes', PacienteController::class)
+            ->parameters(['pacientes' => 'paciente']);
+
+        Route::patch('pacientes/{paciente}/toggle-status', [PacienteController::class, 'toggleStatus'])
+            ->name('pacientes.toggle-status');
     });
 
 

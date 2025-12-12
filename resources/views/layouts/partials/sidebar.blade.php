@@ -67,6 +67,15 @@
                          <p>Permisos</p>
                      </a>
                  </li>
+                 @can('pacientes.view')
+                     <li class="nav-item">
+                         <a href="{{ route('admin.pacientes.index') }}"
+                             class="nav-link {{ request()->routeIs('admin.pacientes.*') ? 'active' : '' }}">
+                             <i class="nav-icon fas fa-user-injured"></i>
+                             <p>Pacientes</p>
+                         </a>
+                     </li>
+                 @endcan
 
 
              </ul>
