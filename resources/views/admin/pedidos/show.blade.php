@@ -184,10 +184,13 @@
                     </a>
 
                     @can('pedidos.update')
+                    @if(auth()->user()->hasRole('admin') || ($pedido->estado === 'pendiente'))
                         <a href="{{ route('admin.pedidos.edit', $pedido) }}" class="btn btn-sm btn-warning">
                             <i class="fas fa-edit"></i> Editar
                         </a>
-                    @endcan
+                    @endif
+                @endcan
+                
 
                     @can('pedidos.view')
                         @if (\Illuminate\Support\Facades\Route::has('admin.pedidos.pdf'))
