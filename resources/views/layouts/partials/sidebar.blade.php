@@ -124,16 +124,19 @@
                     </li>
                 @endcan
 
-                {{-- Pedidos (Admin / Clínica / quien tenga pedidos.view) --}}
-                @can('pedidos.view')
-                    <li class="nav-item">
-                        <a href="{{ route('admin.pedidos.index') }}"
-                           class="nav-link {{ request()->routeIs('admin.pedidos.*') ? 'active' : '' }}">
-                            <i class="nav-icon fas fa-file-medical"></i>
-                            <p>Pedidos</p>
-                        </a>
-                    </li>
-                @endcan
+              {{-- Pedidos (se oculta para Técnico; técnico trabaja desde Panel Técnico) --}}
+@php($u = auth()->user())
+@if($u && !$u->hasRole('tecnico'))
+    @can('pedidos.view')
+        <li class="nav-item">
+            <a href="{{ route('admin.pedidos.index') }}"
+               class="nav-link {{ request()->routeIs('admin.pedidos.*') ? 'active' : '' }}">
+                <i class="nav-icon fas fa-file-medical"></i>
+                <p>Pedidos</p>
+            </a>
+        </li>
+    @endcan
+@endif
 
                 {{-- Panel Técnico (rol o permiso) --}}
                 @if(auth()->check() && (auth()->user()->hasAnyRole(['tecnico','admin']) || auth()->user()->can('tecnico.pedidos.view')))

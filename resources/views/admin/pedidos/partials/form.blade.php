@@ -158,10 +158,23 @@
                         class="form-control @error('paciente_id') is-invalid @enderror" required>
                         <option value="">Seleccione...</option>
                         @foreach ($pacientes as $pac)
-                            <option value="{{ $pac->id }}" @selected(old('paciente_id', $pedido->paciente_id) == $pac->id)>
-                                {{ $pac->apellido }} {{ $pac->nombre }} ({{ $pac->clinica->nombre ?? 'Sin clínica' }})
+                            @php
+                                // Ajustá estos campos si en tu tabla pacientes tienen otros nombres
+                                $tel = $pac->telefono ?? ($pac->celular ?? '');
+                                $mail = $pac->email ?? '';
+                                $dir = $pac->direccion ?? '';
+                                $doc = $pac->documento ?? ($pac->ci ?? '');
+                            @endphp
+
+                            <option value="{{ $pac->id }}" data-clinica="{{ (int) $pac->clinica_id }}"
+                                data-telefono="{{ $tel }}" data-email="{{ $mail }}"
+                                data-direccion="{{ $dir }}" data-documento="{{ $doc }}"
+                                @selected(old('paciente_id', $pedido->paciente_id) == $pac->id)>
+                                {{ $pac->apellido }} {{ $pac->nombre }}
+                                ({{ $pac->clinica->nombre ?? 'Sin clínica' }})
                             </option>
                         @endforeach
+
                     </select>
                     @error('paciente_id')
                         <span class="invalid-feedback">{{ $message }}</span>
@@ -205,23 +218,52 @@
         </div>
 
         <div class="row">
-            {{-- Doctor --}}
-            <div class="col-md-4">
-                <div class="form-group">
-                    <label for="doctor_nombre">Dr(a)</label>
-                    <input type="text" name="doctor_nombre" id="doctor_nombre"
-                        class="form-control @error('doctor_nombre') is-invalid @enderror"
-                        value="{{ old('doctor_nombre', $pedido->doctor_nombre) }}">
-                    @error('doctor_nombre')
-                        <span class="invalid-feedback">{{ $message }}</span>
-                    @enderror
-                </div>
+            @php
+                $doctorNombreValor = old('doctor_nombre', $pedido->doctor_nombre ?? '');
+                $doctorUserValor = old('doctor_user_id');
+
+                // Si estamos editando y solo tenemos el nombre guardado, intentamos preseleccionar el user_id
+                if (empty($doctorUserValor) && !empty($doctorNombreValor) && isset($doctores)) {
+                    $match = $doctores->firstWhere('name', $doctorNombreValor);
+                    if ($match) {
+                        $doctorUserValor = $match->id;
+                    }
+                }
+            @endphp
+
+            <div class="form-group">
+                <label for="doctor_user_id">Dr(a)</label>
+
+                <select name="doctor_user_id" id="doctor_user_id"
+                    class="form-control @error('doctor_nombre') is-invalid @enderror">
+                    <option value="">Seleccione...</option>
+
+                    @foreach ($doctores as $doc)
+                        <option value="{{ $doc->id }}" data-clinica="{{ (int) $doc->clinica_id }}"
+                            data-name="{{ $doc->name }}" data-email="{{ $doc->email }}"
+                            @selected((int) $doctorUserValor === (int) $doc->id)>
+                            {{ $doc->name }}
+                        </option>
+                    @endforeach
+                </select>
+
+                {{-- Este es el que realmente se guarda en tu pedido (mantiene compatibilidad con tu BD/controlador actual) --}}
+                <input type="hidden" name="doctor_nombre" id="doctor_nombre" value="{{ $doctorNombreValor }}">
+
+                @error('doctor_nombre')
+                    <span class="invalid-feedback">{{ $message }}</span>
+                @enderror
+
+                <small class="form-text text-muted">
+                    Se listan solo doctores (owner) asociados a la clínica seleccionada.
+                </small>
             </div>
+
 
             {{-- Teléfono --}}
             <div class="col-md-4">
                 <div class="form-group">
-                    <label for="doctor_telefono">Teléfono</label>
+                    <label for="doctor_telefono">Teléfono (paciente)</label>
                     <input type="text" name="doctor_telefono" id="doctor_telefono"
                         class="form-control @error('doctor_telefono') is-invalid @enderror"
                         value="{{ old('doctor_telefono', $pedido->doctor_telefono) }}">
@@ -234,7 +276,7 @@
             {{-- Email --}}
             <div class="col-md-4">
                 <div class="form-group">
-                    <label for="doctor_email">E-mail</label>
+                    <label for="doctor_email">E-mail (paciente)</label>
                     <input type="email" name="doctor_email" id="doctor_email"
                         class="form-control @error('doctor_email') is-invalid @enderror"
                         value="{{ old('doctor_email', $pedido->doctor_email) }}">
@@ -249,7 +291,7 @@
             {{-- Dirección --}}
             <div class="col-md-6">
                 <div class="form-group">
-                    <label for="direccion">Dirección</label>
+                    <label for="direccion">Dirección (paciente)</label>
                     <input type="text" name="direccion" id="direccion"
                         class="form-control @error('direccion') is-invalid @enderror"
                         value="{{ old('direccion', $pedido->direccion) }}">
@@ -915,99 +957,200 @@
             };
         });
     </script>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        const isAdmin = @json((bool) $isAdmin);
-        const consultas = @json($consultasData);
-        const pacientes = @json($pacientesData);
-    
-        const selClinica  = document.getElementById('clinica_id');
-        const selPaciente = document.getElementById('paciente_id');
-        const selConsulta = document.getElementById('consulta_id');
-    
-        const consultaInicial = @json($consultaValor ? (int)$consultaValor : null);
-    
-        function rebuildConsultas(pacienteId, selectedId = null) {
-            if (!selConsulta) return;
-    
-            selConsulta.innerHTML = '';
-            const opt0 = document.createElement('option');
-            opt0.value = '';
-            opt0.textContent = pacienteId ? '-- Seleccione consulta --' : '-- Seleccione paciente primero --';
-            selConsulta.appendChild(opt0);
-    
-            if (!pacienteId) return;
-    
-            const list = consultas.filter(c => String(c.paciente_id) === String(pacienteId));
-    
-            if (!list.length) {
-                const opt = document.createElement('option');
-                opt.value = '';
-                opt.textContent = 'Sin consultas para este paciente';
-                selConsulta.appendChild(opt);
-                return;
-            }
-    
-            list.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c.id;
-                opt.textContent = c.label;
-                if (selectedId && String(selectedId) === String(c.id)) {
-                    opt.selected = true;
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const isAdmin = @json((bool) $isAdmin);
+            const consultas = @json($consultasData);
+            const pacientes = @json($pacientesData);
+
+            const selClinica = document.getElementById('clinica_id');
+            const selPaciente = document.getElementById('paciente_id');
+            const selConsulta = document.getElementById('consulta_id');
+
+            const consultaInicial = @json($consultaValor ? (int) $consultaValor : null);
+            const modo = @json($modo ?? 'create');
+
+            const inpPacienteTel = document.getElementById('doctor_telefono'); // se guarda en pedido (compat)
+            const inpPacienteMail = document.getElementById('doctor_email'); // se guarda en pedido (compat)
+            const inpPacienteDir = document.getElementById('direccion');
+            const inpPacienteDoc = document.getElementById('paciente_documento');
+
+            function syncPacienteFromSelect(force = false) {
+                if (!selPaciente) return;
+
+                const opt = selPaciente.options[selPaciente.selectedIndex];
+
+                // Si no hay paciente seleccionado, limpiamos (solo si force)
+                if (!opt || !opt.value) {
+                    if (force) {
+                        if (inpPacienteTel) inpPacienteTel.value = '';
+                        if (inpPacienteMail) inpPacienteMail.value = '';
+                        if (inpPacienteDir) inpPacienteDir.value = '';
+                        if (inpPacienteDoc) inpPacienteDoc.value = '';
+                    }
+                    return;
                 }
-                selConsulta.appendChild(opt);
-            });
-        }
-    
-        function filterPacientesByClinica() {
-            // Solo útil si admin puede cambiar clínica
-            if (!isAdmin || !selClinica || !selPaciente) return;
-    
-            const clinicaId = selClinica.value ? String(selClinica.value) : '';
-            const currentPaciente = selPaciente.value ? String(selPaciente.value) : '';
-    
-            // Mostrar/ocultar options de pacientes
-            [...selPaciente.options].forEach(opt => {
-                if (!opt.value) return; // placeholder
-                const p = pacientes.find(x => String(x.id) === String(opt.value));
-                if (!p) return;
-    
-                const visible = !clinicaId || String(p.clinica_id) === clinicaId;
-                opt.hidden = !visible;
-            });
-    
-            // Si el paciente actual ya no pertenece a la clínica seleccionada, limpiamos
-            if (currentPaciente) {
-                const p = pacientes.find(x => String(x.id) === currentPaciente);
-                if (p && clinicaId && String(p.clinica_id) !== clinicaId) {
-                    selPaciente.value = '';
-                    rebuildConsultas(null, null);
+
+                const tel = String(opt.dataset.telefono || '').trim();
+                const mail = String(opt.dataset.email || '').trim();
+                const dir = String(opt.dataset.direccion || '').trim();
+                const doc = String(opt.dataset.documento || '').trim();
+
+                // En edit, no pisamos lo que ya está guardado, salvo que el usuario cambie el paciente
+                const canSet = (input) => input && (force || modo !== 'edit' || String(input.value || '').trim() ===
+                    '');
+
+                if (canSet(inpPacienteTel)) inpPacienteTel.value = tel;
+                if (canSet(inpPacienteMail)) inpPacienteMail.value = mail;
+                if (canSet(inpPacienteDir)) inpPacienteDir.value = dir;
+                if (canSet(inpPacienteDoc)) inpPacienteDoc.value = doc;
+            }
+
+            function rebuildConsultas(pacienteId, selectedId = null) {
+                if (!selConsulta) return;
+
+                selConsulta.innerHTML = '';
+                const opt0 = document.createElement('option');
+                opt0.value = '';
+                opt0.textContent = pacienteId ? '-- Seleccione consulta --' : '-- Seleccione paciente primero --';
+                selConsulta.appendChild(opt0);
+
+                if (!pacienteId) return;
+
+                const list = consultas.filter(c => String(c.paciente_id) === String(pacienteId));
+
+                if (!list.length) {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = 'Sin consultas para este paciente';
+                    selConsulta.appendChild(opt);
+                    return;
+                }
+
+                list.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = c.label;
+                    if (selectedId && String(selectedId) === String(c.id)) {
+                        opt.selected = true;
+                    }
+                    selConsulta.appendChild(opt);
+                });
+            }
+
+            function filterPacientesByClinica() {
+                // Solo útil si admin puede cambiar clínica
+                if (!isAdmin || !selClinica || !selPaciente) return;
+
+                const clinicaId = selClinica.value ? String(selClinica.value) : '';
+                const currentPaciente = selPaciente.value ? String(selPaciente.value) : '';
+
+                // Mostrar/ocultar options de pacientes
+                [...selPaciente.options].forEach(opt => {
+                    if (!opt.value) return; // placeholder
+                    const p = pacientes.find(x => String(x.id) === String(opt.value));
+                    if (!p) return;
+
+                    const visible = !clinicaId || String(p.clinica_id) === clinicaId;
+                    opt.hidden = !visible;
+                });
+
+                // Si el paciente actual ya no pertenece a la clínica seleccionada, limpiamos
+                if (currentPaciente) {
+                    const p = pacientes.find(x => String(x.id) === currentPaciente);
+                    if (p && clinicaId && String(p.clinica_id) !== clinicaId) {
+                        selPaciente.value = '';
+                        rebuildConsultas(null, null);
+                    }
                 }
             }
-        }
-    
-        // Eventos
-        if (selPaciente) {
-            selPaciente.addEventListener('change', function () {
-                // al cambiar paciente: limpiar consulta y recargar
-                rebuildConsultas(this.value || null, null);
-            });
-        }
-    
-        if (selClinica) {
-            selClinica.addEventListener('change', function () {
-                filterPacientesByClinica();
-                // clínica cambió: también resetea consultas
-                rebuildConsultas(selPaciente?.value || null, null);
-            });
-        }
-    
-        // Inicial (edit / old)
-        filterPacientesByClinica();
-        rebuildConsultas(selPaciente?.value || null, consultaInicial);
-    });
+
+            // Eventos
+            if (selPaciente) {
+                selPaciente.addEventListener('change', function() {
+                    rebuildConsultas(this.value || null, null);
+                    syncPacienteFromSelect(true); // ✅ al cambiar paciente, rellenar/actualizar
+                });
+            }
+
+            if (selClinica) {
+                selClinica.addEventListener('change', function() {
+                    filterPacientesByClinica();
+                    rebuildConsultas(selPaciente?.value || null, null);
+
+                    // ✅ si el paciente se limpió o cambió contexto, refrescar datos del paciente
+                    syncPacienteFromSelect(true);
+                });
+            }
+
+
+            // Inicial (edit / old)
+            filterPacientesByClinica();
+            rebuildConsultas(selPaciente?.value || null, consultaInicial);
+            const selDoctor = document.getElementById('doctor_user_id');
+            const hidDoctorNombre = document.getElementById('doctor_nombre');
+
+
+            function filterDoctoresByClinica() {
+                if (!selDoctor || !selClinica) return;
+
+                const clinicaId = selClinica.value ? String(selClinica.value) : '';
+                const currentDoctor = selDoctor.value ? String(selDoctor.value) : '';
+
+                [...selDoctor.options].forEach(opt => {
+                    if (!opt.value) return; // placeholder
+                    const optClinica = String(opt.dataset.clinica || '');
+                    const visible = !clinicaId || optClinica === clinicaId;
+                    opt.hidden = !visible;
+                });
+
+                // si el doctor seleccionado ya no pertenece a la clínica seleccionada, limpiamos
+                if (currentDoctor) {
+                    const opt = selDoctor.querySelector(`option[value="${currentDoctor}"]`);
+                    const optClinica = opt ? String(opt.dataset.clinica || '') : '';
+                    if (clinicaId && optClinica !== clinicaId) {
+                        selDoctor.value = '';
+                        if (hidDoctorNombre) hidDoctorNombre.value = '';
+                    }
+                }
+            }
+
+            function syncDoctorFromSelect() {
+                if (!selDoctor || !hidDoctorNombre) return;
+
+                const opt = selDoctor.options[selDoctor.selectedIndex];
+                if (!opt || !opt.value) {
+                    hidDoctorNombre.value = '';
+                    return;
+                }
+
+                hidDoctorNombre.value = (opt.dataset.name || opt.textContent || '').trim();
+
+
+            }
+
+            // Eventos
+            if (selDoctor) {
+                selDoctor.addEventListener('change', function() {
+                    syncDoctorFromSelect();
+                });
+            }
+
+            if (selClinica) {
+                selClinica.addEventListener('change', function() {
+                    filterDoctoresByClinica();
+                    syncDoctorFromSelect();
+                });
+            }
+
+            // Inicial
+            filterDoctoresByClinica();
+            syncDoctorFromSelect();
+            syncPacienteFromSelect(false); // ✅ inicial (no pisa en edit)
+
+        });
     </script>
-    
+
 
 </div>
 

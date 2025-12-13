@@ -179,9 +179,13 @@
                 </div>
 
                 <div class="mt-2 mt-md-0">
-                    <a href="{{ route('admin.pedidos.index') }}" class="btn btn-sm btn-secondary">
-                        <i class="fas fa-arrow-left"></i> Volver
-                    </a>
+                    @php($u = auth()->user())
+                    @if($u && !$u->hasRole('tecnico'))
+                        <a href="{{ route('admin.pedidos.index') }}" class="btn btn-sm btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Volver
+                        </a>
+                    @endif
+                    
 
                     @can('pedidos.update')
                     @if(auth()->user()->hasRole('admin') || ($pedido->estado === 'pendiente'))

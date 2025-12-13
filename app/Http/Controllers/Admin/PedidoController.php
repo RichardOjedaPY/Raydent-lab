@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\Consulta;
+use App\Models\User;
 
 class PedidoController extends Controller
 {
@@ -133,6 +134,16 @@ class PedidoController extends Controller
             ->limit(400)
             ->get();
 
+        // ✅ Doctores (Owner / Admin clínica) de la clínica (o de todas si es admin)
+        $doctores = User::query()
+            ->select(['id', 'name', 'email', 'clinica_id', 'tipo_usuario_clinica'])
+            ->whereNotNull('clinica_id')
+            ->where('is_active', 1)
+            ->where('tipo_usuario_clinica', 'owner') // 👈 solo Owners (Doctores)
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderBy('name')
+            ->get();
+
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
 
         $fotosSeleccionadas             = [];
@@ -148,6 +159,90 @@ class PedidoController extends Controller
             'clinicas',
             'pacientes',
             'consultas',
+            'doctores', // ✅ NUEVO
+            'fotosTipos',
+            'cefalometriasTipos',
+            'documentaciones',
+            'fotosSeleccionadas',
+            'cefalometriasSeleccionadas',
+            'piezasPeriapicalSeleccionadas',
+            'piezasTomografiaSeleccionadas',
+            'codigoPedidoSugerido',
+            'modo',
+            'isAdmin'
+        ));
+    }
+
+
+
+
+
+    public function edit(Pedido $pedido)
+    {
+        $user    = auth()->user();
+        $isAdmin = $user->hasRole('admin');
+
+        if (! $isAdmin && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
+
+        // Mantener cargas existentes
+        $pedido->load(['fotos', 'cefalometrias', 'piezas']);
+
+        // 🔒 Multi-tenant: clínicas/pacientes/consultas según rol
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
+
+        $pacientes = Paciente::with('clinica')
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderBy('apellido')
+            ->orderBy('nombre')
+            ->get();
+
+        // ✅ Consultas disponibles para asociar (solo del scope)
+        $consultas = Consulta::query()
+            ->select('id', 'clinica_id', 'paciente_id', 'fecha_hora', 'motivo_consulta')
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderByDesc('fecha_hora')
+            ->limit(400)
+            ->get();
+
+        // ✅ Doctores (Owner / Admin clínica) de la clínica (o de todas si es admin)
+        $doctores = User::query()
+            ->select(['id', 'name', 'email', 'clinica_id', 'tipo_usuario_clinica'])
+            ->whereNotNull('clinica_id')
+            ->where('is_active', 1)
+            ->where('tipo_usuario_clinica', 'owner') // 👈 solo Owners (Doctores)
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderBy('name')
+            ->get();
+
+        [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
+
+        $fotosSeleccionadas         = $pedido->fotos->pluck('tipo')->all();
+        $cefalometriasSeleccionadas = $pedido->cefalometrias->pluck('tipo')->all();
+
+        // Mantener separación por tipo (odontogramas)
+        $piezasPeriapicalSeleccionadas = $pedido->piezas
+            ->where('tipo', 'periapical')
+            ->pluck('pieza_codigo')
+            ->all();
+
+        $piezasTomografiaSeleccionadas = $pedido->piezas
+            ->where('tipo', 'tomografia')
+            ->pluck('pieza_codigo')
+            ->all();
+
+        $modo = 'edit';
+        $codigoPedidoSugerido = $pedido->codigo_pedido;
+
+        return view('admin.pedidos.edit', compact(
+            'pedido',
+            'clinicas',
+            'pacientes',
+            'consultas',
+            'doctores', // ✅ NUEVO
             'fotosTipos',
             'cefalometriasTipos',
             'documentaciones',
@@ -269,76 +364,6 @@ class PedidoController extends Controller
             ->route('admin.pedidos.index')
             ->with('success', 'Pedido creado correctamente.');
     }
-
-    public function edit(Pedido $pedido)
-    {
-        $user    = auth()->user();
-        $isAdmin = $user->hasRole('admin');
-
-        if (! $isAdmin && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
-            abort(403);
-        }
-
-        // Mantener cargas existentes
-        $pedido->load(['fotos', 'cefalometrias', 'piezas']);
-
-        // 🔒 Multi-tenant: clínicas/pacientes/consultas según rol
-        $clinicas = $isAdmin
-            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
-            : Clinica::where('id', $user->clinica_id)->get();
-
-        $pacientes = Paciente::with('clinica')
-            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
-            ->orderBy('apellido')
-            ->orderBy('nombre')
-            ->get();
-
-        // ✅ Consultas disponibles para asociar (solo del scope)
-        $consultas = Consulta::query()
-            ->select('id', 'clinica_id', 'paciente_id', 'fecha_hora', 'motivo_consulta')
-            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
-            ->orderByDesc('fecha_hora')
-            ->limit(400)
-            ->get();
-
-        [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
-
-        $fotosSeleccionadas         = $pedido->fotos->pluck('tipo')->all();
-        $cefalometriasSeleccionadas = $pedido->cefalometrias->pluck('tipo')->all();
-
-        // Mantener separación por tipo (odontogramas)
-        $piezasPeriapicalSeleccionadas = $pedido->piezas
-            ->where('tipo', 'periapical')
-            ->pluck('pieza_codigo')
-            ->all();
-
-        $piezasTomografiaSeleccionadas = $pedido->piezas
-            ->where('tipo', 'tomografia')
-            ->pluck('pieza_codigo')
-            ->all();
-
-        $modo = 'edit';
-        $codigoPedidoSugerido = $pedido->codigo_pedido;
-
-        return view('admin.pedidos.edit', compact(
-            'pedido',
-            'clinicas',
-            'pacientes',
-            'consultas',
-            'fotosTipos',
-            'cefalometriasTipos',
-            'documentaciones',
-            'fotosSeleccionadas',
-            'cefalometriasSeleccionadas',
-            'piezasPeriapicalSeleccionadas',
-            'piezasTomografiaSeleccionadas',
-            'codigoPedidoSugerido',
-            'modo',
-            'isAdmin'
-        ));
-    }
-
-
     public function update(Request $request, Pedido $pedido)
     {
         $user    = $request->user();
@@ -492,27 +517,41 @@ class PedidoController extends Controller
     }
     public function show(Pedido $pedido)
     {
-        $user    = auth()->user();
-        $isAdmin = $user->hasRole('admin');
-
-        if (! $isAdmin && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
-            abort(403);
+        $user = auth()->user();
+    
+        // ✅ Reglas de acceso:
+        // - admin: puede ver todo
+        // - tecnico: puede ver todo (necesita ver lo solicitado por la clínica)
+        // - clinica: solo puede ver pedidos de su propia clínica
+        // - otros: 403
+        $isAdmin   = $user->hasRole('admin');
+        $isTecnico = $user->hasRole('tecnico');
+        $isClinica = $user->hasRole('clinica');
+    
+        if (! $isAdmin && ! $isTecnico) {
+            // si no es admin ni técnico, aplicamos restricción por clínica
+            if ($isClinica) {
+                if ((int) $pedido->clinica_id !== (int) $user->clinica_id) {
+                    abort(403);
+                }
+            } else {
+                abort(403);
+            }
         }
-
+    
         $pedido->load([
             'clinica',
             'paciente',
-            'consulta',          // ✅ asociada (si existe relación)
             'fotos',
             'cefalometrias',
             'piezas',
-            'archivos',          // ✅ archivos subidos por técnico
-            'fotosRealizadas',   // ✅ fotos subidas por técnico
+            'archivos',         // ✅ archivos subidos por técnico
+            'fotosRealizadas',  // ✅ fotos subidas por técnico
             'tecnico',
         ]);
-
+    
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
-
+    
         return view('admin.pedidos.show', compact(
             'pedido',
             'fotosTipos',
@@ -520,7 +559,7 @@ class PedidoController extends Controller
             'documentaciones'
         ));
     }
-
+    
 
 
 
@@ -536,41 +575,59 @@ class PedidoController extends Controller
     }
 
     public function pdf(Pedido $pedido)
-    {
-        $user = auth()->user();
-        if (! $user->hasRole('admin') && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
+{
+    $user = auth()->user();
+
+    // ✅ Acceso:
+    // - admin: todo
+    // - tecnico: todo (puede exportar)
+    // - clinica: solo su clínica
+    // - otros: 403
+    $isAdmin   = $user->hasRole('admin');
+    $isTecnico = $user->hasRole('tecnico');
+    $isClinica = $user->hasRole('clinica');
+
+    if (! $isAdmin && ! $isTecnico) {
+        if ($isClinica) {
+            if ((int) $pedido->clinica_id !== (int) $user->clinica_id) {
+                abort(403);
+            }
+        } else {
             abort(403);
         }
-
-        $pedido->load(['clinica', 'paciente']);
-
-        // Separar piezas para el PDF
-        $periapical = PedidoPieza::where('pedido_id', $pedido->id)
-            ->where('tipo', 'periapical')
-            ->pluck('pieza_codigo')
-            ->map(fn($v) => (string) $v)
-            ->all();
-
-        $tomografia = PedidoPieza::where('pedido_id', $pedido->id)
-            ->where('tipo', 'tomografia')
-            ->pluck('pieza_codigo')
-            ->map(fn($v) => (string) $v)
-            ->all();
-
-        $fotosSeleccionadas = PedidoFoto::where('pedido_id', $pedido->id)->pluck('tipo')->all();
-        $cefalometriasSeleccionadas = PedidoCefalometria::where('pedido_id', $pedido->id)->pluck('tipo')->all();
-
-        $pdf = Pdf::loadView('admin.pedidos.pdf', [
-            'pedido'                     => $pedido,
-            'periapical'                 => $periapical,
-            'tomografia'                 => $tomografia,
-            'fotosSeleccionadas'         => $fotosSeleccionadas,
-            'cefalometriasSeleccionadas' => $cefalometriasSeleccionadas,
-        ])->setPaper('a4');
-
-        $nombre = 'pedido-' . ($pedido->codigo_pedido ?? $pedido->id) . '.pdf';
-        return $pdf->stream($nombre);
     }
+
+    $pedido->load(['clinica', 'paciente']);
+
+    // Separar piezas para el PDF
+    $periapical = PedidoPieza::where('pedido_id', $pedido->id)
+        ->where('tipo', 'periapical')
+        ->pluck('pieza_codigo')
+        ->map(fn ($v) => (string) $v)
+        ->all();
+
+    $tomografia = PedidoPieza::where('pedido_id', $pedido->id)
+        ->where('tipo', 'tomografia')
+        ->pluck('pieza_codigo')
+        ->map(fn ($v) => (string) $v)
+        ->all();
+
+    $fotosSeleccionadas = PedidoFoto::where('pedido_id', $pedido->id)->pluck('tipo')->all();
+    $cefalometriasSeleccionadas = PedidoCefalometria::where('pedido_id', $pedido->id)->pluck('tipo')->all();
+
+    $pdf = Pdf::loadView('admin.pedidos.pdf', [
+        'pedido'                     => $pedido,
+        'periapical'                 => $periapical,
+        'tomografia'                 => $tomografia,
+        'fotosSeleccionadas'         => $fotosSeleccionadas,
+        'cefalometriasSeleccionadas' => $cefalometriasSeleccionadas,
+    ])->setPaper('a4');
+
+    $nombre = 'pedido-' . ($pedido->codigo_pedido ?? $pedido->id) . '.pdf';
+
+    return $pdf->stream($nombre);
+}
+
 
     // ... (Tus métodos auxiliares getCatalogos, booleanFields, generarCodigo se mantienen igual)
     // Solo asegúrate de NO incluir 'piezas_codigos' en ningún validate si no lo usas.

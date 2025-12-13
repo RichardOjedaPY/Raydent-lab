@@ -206,7 +206,7 @@ $cefasSel = collect($cefalometriasSeleccionadas ?? []);
                     Pedido: {{ $pedido->codigo_pedido }}
                 </div>
                 <div>Fecha: {{ $fechaSolicitud }}</div>
-                <div style="margin-top: 5px; color:#999;">[ QR UBICACIÓN ]</div>
+                 
             </td>
         </tr>
     </table>
