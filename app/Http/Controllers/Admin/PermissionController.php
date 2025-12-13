@@ -19,24 +19,57 @@ class PermissionController extends Controller
 
     public function editRole(Role $role)
     {
-        // Módulos y acciones que usamos
-        $modules = [
-            'usuarios'  => 'Usuarios',
-            'clinicas'  => 'Clínicas',
-            'pacientes' => 'Pacientes',
-            'pedidos'   => 'Pedidos',
+        // 1) Traer todos los permisos existentes
+        $permissions = Permission::query()
+            ->orderBy('name')
+            ->get();
+
+        // 2) Armar módulos y acciones automáticamente (modulo.accion)
+        $modules = [];
+        $actionsDetected = [];
+
+        foreach ($permissions as $perm) {
+            $name = (string) $perm->name;
+
+            if (!str_contains($name, '.')) {
+                continue;
+            }
+
+            [$moduleKey, $actionKey] = explode('.', $name, 2);
+
+            $modules[$moduleKey] = $this->moduleLabel($moduleKey);
+            $actionsDetected[$actionKey] = $this->actionLabel($actionKey);
+        }
+
+        // 3) Orden preferido de acciones (primero las CRUD)
+        $preferredActionOrder = ['view', 'create', 'update', 'delete'];
+
+        $actions = [];
+
+        // primero las preferidas si existen
+        foreach ($preferredActionOrder as $a) {
+            if (isset($actionsDetected[$a])) {
+                $actions[$a] = $actionsDetected[$a];
+                unset($actionsDetected[$a]);
+            }
+        }
+
+        // luego el resto (pdf, download, fotos_pdf, estado, etc.)
+        ksort($actionsDetected);
+        foreach ($actionsDetected as $k => $label) {
+            $actions[$k] = $label;
+        }
+
+        // 4) Orden preferido de módulos (lo importante arriba)
+        $preferredModuleOrder = [
+            'usuarios', 'clinicas', 'pacientes', 'consultas', 'pedidos',
+            'resultados', 'tecnico_dashboard', 'tecnico_pedidos', 'permissions',
         ];
 
-        $actions = [
-            'view'   => 'Ver / Listar',
-            'create' => 'Crear',
-            'update' => 'Editar',
-            'delete' => 'Eliminar',
-        ];
+        $modules = $this->orderByPreferred($modules, $preferredModuleOrder);
 
-        // Mapa permiso => objeto Permission
-        $allPermissions = Permission::all()
-            ->keyBy('name');
+        // 5) Mapa permiso => objeto Permission (si lo querés usar después)
+        $allPermissions = $permissions->keyBy('name');
 
         return view('admin.permissions.edit-role', compact(
             'role', 'modules', 'actions', 'allPermissions'
@@ -52,11 +85,66 @@ class PermissionController extends Controller
 
         $perms = $data['perms'] ?? [];
 
-        // Sincroniza permisos: lo que no está en el array se quita
         $role->syncPermissions($perms);
 
         return redirect()
             ->route('admin.permissions.index')
             ->with('success', "Permisos actualizados para el rol {$role->name}.");
+    }
+
+    private function moduleLabel(string $moduleKey): string
+    {
+        return match ($moduleKey) {
+            'usuarios'          => 'Usuarios',
+            'clinicas'          => 'Clínicas',
+            'pacientes'         => 'Pacientes',
+            'consultas'         => 'Consultas',
+            'pedidos'           => 'Pedidos',
+            'resultados'        => 'Resultados',
+            'tecnico_dashboard' => 'Dashboard Técnico',
+            'tecnico_pedidos'   => 'Panel Técnico',
+            'permissions'       => 'Permisos / Roles',
+            default             => ucfirst(str_replace('_', ' ', $moduleKey)),
+        };
+    }
+
+    private function actionLabel(string $actionKey): string
+    {
+        return match ($actionKey) {
+            'view'     => 'Ver / Listar',
+            'create'   => 'Crear',
+            'update'   => 'Editar',
+            'delete'   => 'Eliminar',
+
+            // Acciones extra frecuentes
+            'pdf'       => 'PDF',
+            'download'  => 'Descargar',
+            'fotos_pdf' => 'Fotos PDF',
+            'estado'    => 'Cambiar estado',
+            'archivos'  => 'Subir archivos',
+            'fotos'     => 'Subir fotos',
+            'trabajar'  => 'Trabajar',
+
+            default     => ucfirst(str_replace('_', ' ', $actionKey)),
+        };
+    }
+
+    private function orderByPreferred(array $items, array $preferredOrder): array
+    {
+        $ordered = [];
+
+        foreach ($preferredOrder as $key) {
+            if (array_key_exists($key, $items)) {
+                $ordered[$key] = $items[$key];
+                unset($items[$key]);
+            }
+        }
+
+        ksort($items); // el resto alfabético
+        foreach ($items as $k => $v) {
+            $ordered[$k] = $v;
+        }
+
+        return $ordered;
     }
 }

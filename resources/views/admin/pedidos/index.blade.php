@@ -21,22 +21,19 @@
             <form method="GET" action="{{ route('admin.pedidos.index') }}" class="form-inline">
 
                 <div class="input-group input-group-sm mr-2">
-                    <input type="text"
-                           name="search"
-                           class="form-control"
-                           placeholder="Buscar por código o paciente..."
-                           value="{{ $search }}">
+                    <input type="text" name="search" class="form-control" placeholder="Buscar por código o paciente..."
+                        value="{{ $search }}">
                 </div>
 
                 <div class="input-group input-group-sm mr-2">
                     <select name="estado" class="form-control">
                         <option value="">-- Estado --</option>
                         @foreach ([
-                            'pendiente'   => 'Pendiente',
-                            'en_proceso'  => 'En proceso',
-                            'finalizado'  => 'Finalizado',
-                            'cancelado'   => 'Cancelado',
-                        ] as $val => $label)
+            'pendiente' => 'Pendiente',
+            'en_proceso' => 'En proceso',
+            'finalizado' => 'Finalizado',
+            'cancelado' => 'Cancelado',
+        ] as $val => $label)
                             <option value="{{ $val }}" @selected($estado === $val)>{{ $label }}</option>
                         @endforeach
                     </select>
@@ -46,9 +43,8 @@
                     <i class="fas fa-search"></i> Filtrar
                 </button>
 
-                @if($search || $estado)
-                    <a href="{{ route('admin.pedidos.index') }}"
-                       class="btn btn-link btn-sm ml-1">
+                @if ($search || $estado)
+                    <a href="{{ route('admin.pedidos.index') }}" class="btn btn-link btn-sm ml-1">
                         Limpiar
                     </a>
                 @endif
@@ -56,8 +52,7 @@
 
             {{-- Botón "Nuevo pedido" --}}
             @can('pedidos.create')
-                <a href="{{ route('admin.pedidos.create') }}"
-                   class="btn btn-success btn-sm">
+                <a href="{{ route('admin.pedidos.create') }}" class="btn btn-success btn-sm">
                     <i class="fas fa-plus"></i> Nuevo pedido
                 </a>
             @endcan
@@ -108,10 +103,10 @@
                                 <td>
                                     @php
                                         $mapEstado = [
-                                            'pendiente'  => 'warning',
+                                            'pendiente' => 'warning',
                                             'en_proceso' => 'info',
                                             'finalizado' => 'success',
-                                            'cancelado'  => 'secondary',
+                                            'cancelado' => 'secondary',
                                         ];
                                         $color = $mapEstado[$p->estado] ?? 'light';
                                     @endphp
@@ -144,27 +139,26 @@
                                     {{-- Ver --}}
                                     @can('pedidos.view')
                                         <a href="{{ route('admin.pedidos.show', $p) }}"
-                                           class="btn btn-xs btn-outline-secondary"
-                                           title="Ver">
+                                            class="btn btn-xs btn-outline-secondary" title="Ver">
                                             <i class="fas fa-eye"></i>
                                         </a>
                                     @endcan
 
                                     {{-- Editar --}}
                                     @can('pedidos.update')
-                                        <a href="{{ route('admin.pedidos.edit', $p) }}"
-                                           class="btn btn-xs btn-outline-primary"
-                                           title="Editar">
-                                            <i class="fas fa-edit"></i>
-                                        </a>
+                                        @if (auth()->user()->hasRole('admin') || $p->estado === 'pendiente')
+                                            <a href="{{ route('admin.pedidos.edit', $p) }}"
+                                                class="btn btn-xs btn-outline-primary" title="Editar">
+                                                <i class="fas fa-edit"></i>
+                                            </a>
+                                        @endif
                                     @endcan
+
 
                                     {{-- PDF --}}
                                     @can('pedidos.view')
-                                        <a href="{{ route('admin.pedidos.pdf', $p) }}"
-                                           class="btn btn-xs btn-outline-info"
-                                           title="Descargar PDF"
-                                           target="_blank">
+                                        <a href="{{ route('admin.pedidos.pdf', $p) }}" class="btn btn-xs btn-outline-info"
+                                            title="Descargar PDF" target="_blank">
                                             <i class="fas fa-file-pdf"></i>
                                         </a>
                                     @endcan
@@ -172,15 +166,11 @@
                                     {{-- Eliminar: solo rol admin --}}
                                     @role('admin')
                                         @can('pedidos.delete')
-                                            <form action="{{ route('admin.pedidos.destroy', $p) }}"
-                                                  method="POST"
-                                                  class="d-inline-block"
-                                                  onsubmit="return confirm('¿Eliminar este pedido?');">
+                                            <form action="{{ route('admin.pedidos.destroy', $p) }}" method="POST"
+                                                class="d-inline-block" onsubmit="return confirm('¿Eliminar este pedido?');">
                                                 @csrf
                                                 @method('DELETE')
-                                                <button type="submit"
-                                                        class="btn btn-xs btn-outline-danger"
-                                                        title="Eliminar">
+                                                <button type="submit" class="btn btn-xs btn-outline-danger" title="Eliminar">
                                                     <i class="fas fa-trash"></i>
                                                 </button>
                                             </form>
@@ -189,11 +179,11 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr>
+                            <t>
                                 <td colspan="9" class="text-center text-muted py-3">
                                     No hay pedidos registrados.
                                 </td>
-                            </tr>
+                            </t>
                         @endforelse
                     </tbody>
                 </table>
