@@ -3,7 +3,44 @@
     $cefalometriasSeleccionadas = $cefalometriasSeleccionadas ?? [];
     $piezasPeriapicalSeleccionadas = $piezasPeriapicalSeleccionadas ?? [];
     $piezasTomografiaSeleccionadas = $piezasTomografiaSeleccionadas ?? [];
+
+    //
+    $isAdmin = $isAdmin ?? (auth()->check() ? auth()->user()->hasRole('admin') : false);
+    $consultas = $consultas ?? collect();
+
+    $clinicaValor = old('clinica_id', $pedido->clinica_id ?? null);
+    if (!$isAdmin && empty($clinicaValor)) {
+        $clinicaValor = optional($clinicas->first())->id;
+    }
+
+    $pacienteValor = old('paciente_id', $pedido->paciente_id ?? null);
+    $consultaValor = old('consulta_id', $pedido->consulta_id ?? null);
+
+    // Datos compactos para JS (consultas y pacientes)
+    $consultasData = $consultas
+        ->map(function ($c) {
+            return [
+                'id' => $c->id,
+                'paciente_id' => $c->paciente_id,
+                'clinica_id' => $c->clinica_id,
+                'label' =>
+                    ($c->fecha_hora?->format('d/m/Y H:i') ?: '—') .
+                    ' · ' .
+                    \Illuminate\Support\Str::limit((string) $c->motivo_consulta, 70),
+            ];
+        })
+        ->values();
+
+    $pacientesData = collect($pacientes ?? [])
+        ->map(function ($p) {
+            return [
+                'id' => $p->id,
+                'clinica_id' => $p->clinica_id,
+            ];
+        })
+        ->values();
 @endphp
+
 
 
 <style>
@@ -83,20 +120,35 @@
             <div class="col-md-4">
                 <div class="form-group">
                     <label for="clinica_id">Clínica</label>
-                    <select name="clinica_id" id="clinica_id"
-                        class="form-control @error('clinica_id') is-invalid @enderror" required>
-                        <option value="">Seleccione...</option>
-                        @foreach ($clinicas as $clinica)
-                            <option value="{{ $clinica->id }}" @selected(old('clinica_id', $pedido->clinica_id) == $clinica->id)>
-                                {{ $clinica->nombre }}
-                            </option>
-                        @endforeach
-                    </select>
-                    @error('clinica_id')
-                        <span class="invalid-feedback">{{ $message }}</span>
-                    @enderror
+
+                    {{-- Si NO es admin: bloquear visualmente pero enviar el valor --}}
+                    @if (!$isAdmin)
+                        <input type="hidden" name="clinica_id" value="{{ (int) $clinicaValor }}">
+                        <select id="clinica_id" class="form-control" disabled>
+                            @foreach ($clinicas as $clinica)
+                                <option value="{{ $clinica->id }}" @selected((int) $clinicaValor === (int) $clinica->id)>
+                                    {{ $clinica->nombre }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <small class="form-text text-muted">Clínica asignada a tu usuario.</small>
+                    @else
+                        <select name="clinica_id" id="clinica_id"
+                            class="form-control @error('clinica_id') is-invalid @enderror" required>
+                            <option value="">Seleccione...</option>
+                            @foreach ($clinicas as $clinica)
+                                <option value="{{ $clinica->id }}" @selected((int) $clinicaValor === (int) $clinica->id)>
+                                    {{ $clinica->nombre }}
+                                </option>
+                            @endforeach
+                        </select>
+                        @error('clinica_id')
+                            <span class="invalid-feedback">{{ $message }}</span>
+                        @enderror
+                    @endif
                 </div>
             </div>
+
 
             {{-- Paciente --}}
             <div class="col-md-4">
@@ -114,6 +166,24 @@
                     @error('paciente_id')
                         <span class="invalid-feedback">{{ $message }}</span>
                     @enderror
+                </div>
+            </div>
+            <div class="row">
+                {{-- Consulta --}}
+                <div class="col-md-8">
+                    <div class="form-group">
+                        <label for="consulta_id">Consulta (del paciente)</label>
+                        <select name="consulta_id" id="consulta_id"
+                            class="form-control @error('consulta_id') is-invalid @enderror">
+                            <option value="">-- Seleccione paciente primero --</option>
+                        </select>
+                        @error('consulta_id')
+                            <span class="invalid-feedback">{{ $message }}</span>
+                        @enderror
+                        <small class="form-text text-muted">
+                            La consulta se filtra automáticamente según el paciente seleccionado.
+                        </small>
+                    </div>
                 </div>
             </div>
 
@@ -514,38 +584,33 @@
                 </div>
             </div>
         </details>
-{{-- Selector de piezas (odontograma) --}}
-<details class="mb-3">
-    <summary class="h6 mb-2">Odontograma – piezas seleccionadas</summary>
-    <p class="small text-muted mb-1">
-        Seleccione las piezas en el odontograma 3D.
-    </p>
+        {{-- Selector de piezas (odontograma) --}}
+        <details class="mb-3">
+            <summary class="h6 mb-2">Odontograma – piezas seleccionadas</summary>
+            <p class="small text-muted mb-1">
+                Seleccione las piezas en el odontograma 3D.
+            </p>
 
-    <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center mb-2">
-        <button type="button"
-                class="btn btn-outline-primary btn-sm mr-sm-2 mb-2 mb-sm-0"
-                id="btn-open-odontograma">
-            Abrir odontograma
-        </button>
+            <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center mb-2">
+                <button type="button" class="btn btn-outline-primary btn-sm mr-sm-2 mb-2 mb-sm-0"
+                    id="btn-open-odontograma">
+                    Abrir odontograma
+                </button>
 
-        <div class="flex-grow-1">
-            <label for="piezas_tomografia_resumen" class="small mb-1 d-block">
-                Piezas actuales
-            </label>
-            <input type="text"
-                   id="piezas_tomografia_resumen"
-                   class="form-control form-control-sm"
-                   value="{{ $piezasTomografiaSeleccionadas ? implode(', ', $piezasTomografiaSeleccionadas) : 'Ninguna' }}"
-                   readonly>
-        </div>
-    </div>
+                <div class="flex-grow-1">
+                    <label for="piezas_tomografia_resumen" class="small mb-1 d-block">
+                        Piezas actuales
+                    </label>
+                    <input type="text" id="piezas_tomografia_resumen" class="form-control form-control-sm"
+                        value="{{ $piezasTomografiaSeleccionadas ? implode(', ', $piezasTomografiaSeleccionadas) : 'Ninguna' }}"
+                        readonly>
+                </div>
+            </div>
 
-    {{-- Este hidden es el que se envía al controlador --}}
-    <input type="hidden"
-           name="piezas_tomografia_codigos"
-           id="piezas_tomografia_codigos"
-           value="{{ old('piezas_tomografia_codigos', $piezasTomografiaSeleccionadas ? implode(',', $piezasTomografiaSeleccionadas) : '') }}">
-</details>
+            {{-- Este hidden es el que se envía al controlador --}}
+            <input type="hidden" name="piezas_tomografia_codigos" id="piezas_tomografia_codigos"
+                value="{{ old('piezas_tomografia_codigos', $piezasTomografiaSeleccionadas ? implode(',', $piezasTomografiaSeleccionadas) : '') }}">
+        </details>
 
 
 
@@ -824,33 +889,125 @@
             };
         });
     </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // El modal llamará a esta función pasándole un array de códigos (['15', '12', ...])
+            window.syncPiezasTomografiaDesdeModal = function(codigos) {
+                const inputTom = document.getElementById('piezas_tomografia_codigos');
+                const resumenTxt = document.getElementById('piezas_tomografia_resumen');
+
+                const arr = (codigos || [])
+                    .map(c => String(c).trim())
+                    .filter(c => c !== '')
+                    .filter((val, idx, self) => self.indexOf(val) === idx)
+                    .sort((a, b) => a.localeCompare(b));
+
+                const csv = arr.join(',');
+
+                if (inputTom) {
+                    inputTom.value = csv; // lo que se guarda en BD
+                }
+
+                if (resumenTxt) {
+                    // caja de texto visible
+                    resumenTxt.value = arr.length ? arr.join(', ') : 'Ninguna';
+                }
+            };
+        });
+    </script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        // El modal llamará a esta función pasándole un array de códigos (['15', '12', ...])
-        window.syncPiezasTomografiaDesdeModal = function (codigos) {
-            const inputTom   = document.getElementById('piezas_tomografia_codigos');
-            const resumenTxt = document.getElementById('piezas_tomografia_resumen');
-
-            const arr = (codigos || [])
-                .map(c => String(c).trim())
-                .filter(c => c !== '')
-                .filter((val, idx, self) => self.indexOf(val) === idx)
-                .sort((a, b) => a.localeCompare(b));
-
-            const csv = arr.join(',');
-
-            if (inputTom) {
-                inputTom.value = csv;              // lo que se guarda en BD
+        const isAdmin = @json((bool) $isAdmin);
+        const consultas = @json($consultasData);
+        const pacientes = @json($pacientesData);
+    
+        const selClinica  = document.getElementById('clinica_id');
+        const selPaciente = document.getElementById('paciente_id');
+        const selConsulta = document.getElementById('consulta_id');
+    
+        const consultaInicial = @json($consultaValor ? (int)$consultaValor : null);
+    
+        function rebuildConsultas(pacienteId, selectedId = null) {
+            if (!selConsulta) return;
+    
+            selConsulta.innerHTML = '';
+            const opt0 = document.createElement('option');
+            opt0.value = '';
+            opt0.textContent = pacienteId ? '-- Seleccione consulta --' : '-- Seleccione paciente primero --';
+            selConsulta.appendChild(opt0);
+    
+            if (!pacienteId) return;
+    
+            const list = consultas.filter(c => String(c.paciente_id) === String(pacienteId));
+    
+            if (!list.length) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = 'Sin consultas para este paciente';
+                selConsulta.appendChild(opt);
+                return;
             }
-
-            if (resumenTxt) {
-                // caja de texto visible
-                resumenTxt.value = arr.length ? arr.join(', ') : 'Ninguna';
+    
+            list.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.label;
+                if (selectedId && String(selectedId) === String(c.id)) {
+                    opt.selected = true;
+                }
+                selConsulta.appendChild(opt);
+            });
+        }
+    
+        function filterPacientesByClinica() {
+            // Solo útil si admin puede cambiar clínica
+            if (!isAdmin || !selClinica || !selPaciente) return;
+    
+            const clinicaId = selClinica.value ? String(selClinica.value) : '';
+            const currentPaciente = selPaciente.value ? String(selPaciente.value) : '';
+    
+            // Mostrar/ocultar options de pacientes
+            [...selPaciente.options].forEach(opt => {
+                if (!opt.value) return; // placeholder
+                const p = pacientes.find(x => String(x.id) === String(opt.value));
+                if (!p) return;
+    
+                const visible = !clinicaId || String(p.clinica_id) === clinicaId;
+                opt.hidden = !visible;
+            });
+    
+            // Si el paciente actual ya no pertenece a la clínica seleccionada, limpiamos
+            if (currentPaciente) {
+                const p = pacientes.find(x => String(x.id) === currentPaciente);
+                if (p && clinicaId && String(p.clinica_id) !== clinicaId) {
+                    selPaciente.value = '';
+                    rebuildConsultas(null, null);
+                }
             }
-        };
+        }
+    
+        // Eventos
+        if (selPaciente) {
+            selPaciente.addEventListener('change', function () {
+                // al cambiar paciente: limpiar consulta y recargar
+                rebuildConsultas(this.value || null, null);
+            });
+        }
+    
+        if (selClinica) {
+            selClinica.addEventListener('change', function () {
+                filterPacientesByClinica();
+                // clínica cambió: también resetea consultas
+                rebuildConsultas(selPaciente?.value || null, null);
+            });
+        }
+    
+        // Inicial (edit / old)
+        filterPacientesByClinica();
+        rebuildConsultas(selPaciente?.value || null, consultaInicial);
     });
-</script>
-
+    </script>
+    
 
 </div>
 

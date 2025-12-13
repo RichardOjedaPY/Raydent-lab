@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Barryvdh\DomPDF\Facade\Pdf;
+use App\Models\Consulta;
 
 class PedidoController extends Controller
 {
@@ -26,16 +27,26 @@ class PedidoController extends Controller
 
     public function index(Request $request)
     {
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
         $search = trim((string) $request->get('search', ''));
         $estado = trim((string) $request->get('estado', ''));
 
+        // 🔒 Multi-tenant: clínica solo ve su clínica
+        $clinicaScopeId = $isAdmin ? (int) ($request->get('clinica_id') ?? 0) : (int) ($user->clinica_id ?? 0);
+
         $pedidos = Pedido::with(['clinica', 'paciente'])
+            ->when($clinicaScopeId > 0, fn($q) => $q->where('clinica_id', $clinicaScopeId))
             ->when($search !== '', function ($q) use ($search) {
-                $q->where('codigo', 'like', "%{$search}%")
-                    ->orWhereHas('paciente', function ($w) use ($search) {
-                        $w->where('nombre', 'like', "%{$search}%")
-                            ->orWhere('apellido', 'like', "%{$search}%");
-                    });
+                $q->where(function ($w) use ($search) {
+                    $w->where('codigo', 'like', "%{$search}%")
+                        ->orWhere('codigo_pedido', 'like', "%{$search}%")
+                        ->orWhereHas('paciente', function ($p) use ($search) {
+                            $p->where('nombre', 'like', "%{$search}%")
+                                ->orWhere('apellido', 'like', "%{$search}%");
+                        });
+                });
             })
             ->when($estado !== '', fn($q) => $q->where('estado', $estado))
             ->latest('id')
@@ -44,34 +55,84 @@ class PedidoController extends Controller
 
         // --------- VARIABLES PARA EL FORM (MODAL) ---------
         $pedido = new Pedido();
-        $clinicas = Clinica::where('is_active', true)->orderBy('nombre')->get();
-        $pacientes = Paciente::with('clinica')->orderBy('apellido')->orderBy('nombre')->get();
+
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
+
+        $pacientes = Paciente::with('clinica')
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderBy('apellido')->orderBy('nombre')
+            ->get();
+
+        // Consultas (para asociar pedido a consulta)
+        $consultas = Consulta::query()
+            ->select('id', 'clinica_id', 'paciente_id', 'fecha_hora', 'motivo_consulta')
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderByDesc('fecha_hora')
+            ->limit(400)
+            ->get();
+
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
 
-        // Arrays vacíos para el index/modal de creación
         $fotosSeleccionadas             = [];
         $cefalometriasSeleccionadas     = [];
-        $piezasPeriapicalSeleccionadas  = []; // CORREGIDO
-        $piezasTomografiaSeleccionadas  = []; // CORREGIDO
+        $piezasPeriapicalSeleccionadas  = [];
+        $piezasTomografiaSeleccionadas  = [];
         $codigoPedidoSugerido = Pedido::generarCodigoPedido();
-
-        // Modo 'create' para que el partial sepa qué botones mostrar
-        $modo = 'create'; 
+        $modo = 'create';
 
         return view('admin.pedidos.index', compact(
-            'pedidos', 'search', 'estado', 'pedido', 'clinicas', 'pacientes',
-            'fotosTipos', 'cefalometriasTipos', 'documentaciones',
-            'fotosSeleccionadas', 'cefalometriasSeleccionadas',
-            'piezasPeriapicalSeleccionadas', 'piezasTomografiaSeleccionadas',
-            'codigoPedidoSugerido', 'modo'
+            'pedidos',
+            'search',
+            'estado',
+            'pedido',
+            'clinicas',
+            'pacientes',
+            'consultas',
+            'fotosTipos',
+            'cefalometriasTipos',
+            'documentaciones',
+            'fotosSeleccionadas',
+            'cefalometriasSeleccionadas',
+            'piezasPeriapicalSeleccionadas',
+            'piezasTomografiaSeleccionadas',
+            'codigoPedidoSugerido',
+            'modo',
+            'isAdmin',
+            'clinicaScopeId'
         ));
     }
 
+
     public function create(Request $request)
     {
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        if (! $isAdmin && ! $user->clinica_id) {
+            abort(403, 'Usuario clínica sin clínica asignada.');
+        }
+
         $pedido = new Pedido();
-        $clinicas = Clinica::where('is_active', true)->orderBy('nombre')->get();
-        $pacientes = Paciente::with('clinica')->orderBy('apellido')->orderBy('nombre')->get();
+
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
+
+        $pacientes = Paciente::with('clinica')
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderBy('apellido')->orderBy('nombre')
+            ->get();
+
+        // Consultas (para asociar pedido a consulta)
+        $consultas = Consulta::query()
+            ->select('id', 'clinica_id', 'paciente_id', 'fecha_hora', 'motivo_consulta')
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderByDesc('fecha_hora')
+            ->limit(400)
+            ->get();
+
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
 
         $fotosSeleccionadas             = [];
@@ -83,20 +144,30 @@ class PedidoController extends Controller
         $modo = 'create';
 
         return view('admin.pedidos.create', compact(
-            'pedido', 'clinicas', 'pacientes',
-            'fotosTipos', 'cefalometriasTipos', 'documentaciones',
-            'fotosSeleccionadas', 'cefalometriasSeleccionadas',
-            'piezasPeriapicalSeleccionadas', 'piezasTomografiaSeleccionadas',
-            'codigoPedidoSugerido', 'modo'
+            'pedido',
+            'clinicas',
+            'pacientes',
+            'consultas',
+            'fotosTipos',
+            'cefalometriasTipos',
+            'documentaciones',
+            'fotosSeleccionadas',
+            'cefalometriasSeleccionadas',
+            'piezasPeriapicalSeleccionadas',
+            'piezasTomografiaSeleccionadas',
+            'codigoPedidoSugerido',
+            'modo',
+            'isAdmin'
         ));
     }
+
 
     public function store(Request $request)
     {
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
 
         $data = $request->validate([
-            'clinica_id'         => ['required', 'integer', 'exists:clinicas,id'],
+            'clinica_id'         => [auth()->user()->hasRole('admin') ? 'required' : 'nullable', 'integer', 'exists:clinicas,id'],
             'paciente_id'        => ['required', 'integer', 'exists:pacientes,id'],
             'consulta_id'        => ['nullable', 'integer', 'exists:consultas,id'],
             'prioridad'          => ['nullable', Rule::in(['normal', 'urgente'])],
@@ -121,20 +192,60 @@ class PedidoController extends Controller
             'cefalometrias'      => ['nullable', 'array'],
             'cefalometrias.*'    => ['string', Rule::in(array_keys($cefalometriasTipos))],
 
-            // CORRECCIÓN: Validar los inputs correctos del formulario
             'piezas_periapical_codigos' => ['nullable', 'string'],
             'piezas_tomografia_codigos' => ['nullable', 'string'],
         ]);
 
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        // 🔒 Multi-tenant: clínica no elige clinica_id
+        if (! $isAdmin) {
+            $data['clinica_id'] = (int) $user->clinica_id;
+        }
+
+        // ✅ Paciente debe pertenecer a clínica
+        $paciente = Paciente::findOrFail($data['paciente_id']);
+        if ((int) $paciente->clinica_id !== (int) $data['clinica_id']) {
+            return back()
+                ->withErrors(['paciente_id' => 'El paciente seleccionado no pertenece a la clínica indicada.'])
+                ->withInput();
+        }
+
+        // ✅ Si se usa consulta_id, debe ser de la misma clínica y del mismo paciente
+        if (! empty($data['consulta_id'])) {
+            $consulta = Consulta::findOrFail($data['consulta_id']);
+            if ((int) $consulta->clinica_id !== (int) $data['clinica_id'] || (int) $consulta->paciente_id !== (int) $data['paciente_id']) {
+                return back()
+                    ->withErrors(['consulta_id' => 'La consulta seleccionada no corresponde a ese paciente y clínica.'])
+                    ->withInput();
+            }
+        }
+
+
         $pedido = new Pedido();
+
+        // set seguro
+        $pedido->clinica_id  = $data['clinica_id'];
+        $pedido->paciente_id = $data['paciente_id'];
+        $pedido->consulta_id = $data['consulta_id'] ?? null;
+
+        // el resto igual
         $pedido->fill($request->only([
-            'clinica_id', 'paciente_id', 'consulta_id', 'prioridad',
-            'doctor_nombre', 'doctor_telefono', 'doctor_email',
-            'paciente_documento', 'direccion',
-            'rx_panoramica_trazado_region', 'rx_periapical_region',
-            'ct_parcial_zona', 'entrega_software_detalle',
-            'documentacion_tipo', 'descripcion_caso'
+            'prioridad',
+            'doctor_nombre',
+            'doctor_telefono',
+            'doctor_email',
+            'paciente_documento',
+            'direccion',
+            'rx_panoramica_trazado_region',
+            'rx_periapical_region',
+            'ct_parcial_zona',
+            'entrega_software_detalle',
+            'documentacion_tipo',
+            'descripcion_caso'
         ]));
+
 
         $pedido->created_by      = Auth::id();
         $pedido->codigo          = $this->generarCodigo();
@@ -161,17 +272,41 @@ class PedidoController extends Controller
 
     public function edit(Pedido $pedido)
     {
-        // CORRECCIÓN: Cargar solo piezas filtradas después en la vista o separarlas aquí
+        $user    = auth()->user();
+        $isAdmin = $user->hasRole('admin');
+
+        if (! $isAdmin && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
+
+        // Mantener cargas existentes
         $pedido->load(['fotos', 'cefalometrias', 'piezas']);
 
-        $clinicas = Clinica::where('is_active', true)->orderBy('nombre')->get();
-        $pacientes = Paciente::with('clinica')->orderBy('apellido')->orderBy('nombre')->get();
+        // 🔒 Multi-tenant: clínicas/pacientes/consultas según rol
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
+
+        $pacientes = Paciente::with('clinica')
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderBy('apellido')
+            ->orderBy('nombre')
+            ->get();
+
+        // ✅ Consultas disponibles para asociar (solo del scope)
+        $consultas = Consulta::query()
+            ->select('id', 'clinica_id', 'paciente_id', 'fecha_hora', 'motivo_consulta')
+            ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
+            ->orderByDesc('fecha_hora')
+            ->limit(400)
+            ->get();
+
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
 
         $fotosSeleccionadas         = $pedido->fotos->pluck('tipo')->all();
         $cefalometriasSeleccionadas = $pedido->cefalometrias->pluck('tipo')->all();
 
-        // CORRECCIÓN: Separar piezas por tipo para rellenar los odontogramas correctamente
+        // Mantener separación por tipo (odontogramas)
         $piezasPeriapicalSeleccionadas = $pedido->piezas
             ->where('tipo', 'periapical')
             ->pluck('pieza_codigo')
@@ -186,22 +321,41 @@ class PedidoController extends Controller
         $codigoPedidoSugerido = $pedido->codigo_pedido;
 
         return view('admin.pedidos.edit', compact(
-            'pedido', 'clinicas', 'pacientes',
-            'fotosTipos', 'cefalometriasTipos', 'documentaciones',
-            'fotosSeleccionadas', 'cefalometriasSeleccionadas',
-            'piezasPeriapicalSeleccionadas', 'piezasTomografiaSeleccionadas',
-            'codigoPedidoSugerido', 'modo'
+            'pedido',
+            'clinicas',
+            'pacientes',
+            'consultas',
+            'fotosTipos',
+            'cefalometriasTipos',
+            'documentaciones',
+            'fotosSeleccionadas',
+            'cefalometriasSeleccionadas',
+            'piezasPeriapicalSeleccionadas',
+            'piezasTomografiaSeleccionadas',
+            'codigoPedidoSugerido',
+            'modo',
+            'isAdmin'
         ));
     }
 
+
     public function update(Request $request, Pedido $pedido)
     {
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        if (! $isAdmin && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
+
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
 
         $data = $request->validate([
-            'clinica_id'         => ['required', 'integer', 'exists:clinicas,id'],
+            // admin elige clinica, clinica NO
+            'clinica_id'         => [$isAdmin ? 'required' : 'nullable', 'integer', 'exists:clinicas,id'],
             'paciente_id'        => ['required', 'integer', 'exists:pacientes,id'],
             'consulta_id'        => ['nullable', 'integer', 'exists:consultas,id'],
+
             'prioridad'          => ['nullable', Rule::in(['normal', 'urgente'])],
             'fecha_agendada'     => ['nullable', 'date'],
             'hora_agendada'      => ['nullable', 'date_format:H:i'],
@@ -224,18 +378,52 @@ class PedidoController extends Controller
             'cefalometrias'      => ['nullable', 'array'],
             'cefalometrias.*'    => ['string', Rule::in(array_keys($cefalometriasTipos))],
 
-            // CORRECCIÓN: Nombres correctos del formulario
             'piezas_periapical_codigos' => ['nullable', 'string'],
             'piezas_tomografia_codigos' => ['nullable', 'string'],
         ]);
 
+        // 🔒 Multi-tenant: rol clínica no puede cambiar clinica_id
+        if (! $isAdmin) {
+            $data['clinica_id'] = (int) $user->clinica_id;
+        }
+
+        // ✅ Paciente debe pertenecer a clínica
+        $paciente = Paciente::findOrFail($data['paciente_id']);
+        if ((int) $paciente->clinica_id !== (int) $data['clinica_id']) {
+            return back()
+                ->withErrors(['paciente_id' => 'El paciente seleccionado no pertenece a la clínica indicada.'])
+                ->withInput();
+        }
+
+        // ✅ Consulta (si viene) debe corresponder a ese paciente y clínica
+        if (! empty($data['consulta_id'])) {
+            $consulta = Consulta::findOrFail($data['consulta_id']);
+            if ((int) $consulta->clinica_id !== (int) $data['clinica_id'] || (int) $consulta->paciente_id !== (int) $data['paciente_id']) {
+                return back()
+                    ->withErrors(['consulta_id' => 'La consulta seleccionada no corresponde a ese paciente y clínica.'])
+                    ->withInput();
+            }
+        }
+
+        // ✅ Set seguro (NO fill de IDs)
+        $pedido->clinica_id  = $data['clinica_id'];
+        $pedido->paciente_id = $data['paciente_id'];
+        $pedido->consulta_id = $data['consulta_id'] ?? null;
+
+        // resto igual
         $pedido->fill($request->only([
-            'clinica_id', 'paciente_id', 'consulta_id', 'prioridad',
-            'doctor_nombre', 'doctor_telefono', 'doctor_email',
-            'paciente_documento', 'direccion',
-            'rx_panoramica_trazado_region', 'rx_periapical_region',
-            'ct_parcial_zona', 'entrega_software_detalle',
-            'documentacion_tipo', 'descripcion_caso'
+            'prioridad',
+            'doctor_nombre',
+            'doctor_telefono',
+            'doctor_email',
+            'paciente_documento',
+            'direccion',
+            'rx_panoramica_trazado_region',
+            'rx_periapical_region',
+            'ct_parcial_zona',
+            'entrega_software_detalle',
+            'documentacion_tipo',
+            'descripcion_caso'
         ]));
 
         $pedido->fecha_agendada = $data['fecha_agendada'] ?? null;
@@ -247,7 +435,6 @@ class PedidoController extends Controller
 
         $pedido->save();
 
-        // Borrar relaciones antiguas y crear nuevas
         $pedido->fotos()->delete();
         $pedido->cefalometrias()->delete();
         $pedido->piezas()->delete();
@@ -258,6 +445,7 @@ class PedidoController extends Controller
             ->route('admin.pedidos.index')
             ->with('success', 'Pedido actualizado correctamente.');
     }
+
 
     // --- Helper privado para no repetir código en Store y Update ---
     private function guardarRelaciones(Pedido $pedido, Request $request)
@@ -303,48 +491,70 @@ class PedidoController extends Controller
         }
     }
     public function show(Pedido $pedido)
-{
-    $pedido->load([
-        'clinica',
-        'paciente',
-        'fotos',
-        'cefalometrias',
-        'piezas',
-        'archivos',         // ✅ archivos subidos por técnico
-        'fotosRealizadas',  // ✅ fotos subidas por técnico
-        'tecnico',
-    ]);
+    {
+        $user    = auth()->user();
+        $isAdmin = $user->hasRole('admin');
 
-    [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
+        if (! $isAdmin && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
 
-    return view('admin.pedidos.show', compact(
-        'pedido', 'fotosTipos', 'cefalometriasTipos', 'documentaciones'
-    ));
-}
+        $pedido->load([
+            'clinica',
+            'paciente',
+            'consulta',          // ✅ asociada (si existe relación)
+            'fotos',
+            'cefalometrias',
+            'piezas',
+            'archivos',          // ✅ archivos subidos por técnico
+            'fotosRealizadas',   // ✅ fotos subidas por técnico
+            'tecnico',
+        ]);
 
-    
+        [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
+
+        return view('admin.pedidos.show', compact(
+            'pedido',
+            'fotosTipos',
+            'cefalometriasTipos',
+            'documentaciones'
+        ));
+    }
+
+
+
 
     public function destroy(Pedido $pedido)
     {
+        $user = auth()->user();
+        if (! $user->hasRole('admin') && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
+
         $pedido->delete();
         return redirect()->route('admin.pedidos.index')->with('success', 'Pedido eliminado.');
     }
 
     public function pdf(Pedido $pedido)
     {
+        $user = auth()->user();
+        if (! $user->hasRole('admin') && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
+
         $pedido->load(['clinica', 'paciente']);
 
         // Separar piezas para el PDF
         $periapical = PedidoPieza::where('pedido_id', $pedido->id)
             ->where('tipo', 'periapical')
             ->pluck('pieza_codigo')
-            ->map(fn ($v) => (string) $v)
+            ->map(fn($v) => (string) $v)
             ->all();
 
         $tomografia = PedidoPieza::where('pedido_id', $pedido->id)
             ->where('tipo', 'tomografia')
             ->pluck('pieza_codigo')
-            ->map(fn ($v) => (string) $v)
+            ->map(fn($v) => (string) $v)
             ->all();
 
         $fotosSeleccionadas = PedidoFoto::where('pedido_id', $pedido->id)->pluck('tipo')->all();
@@ -364,14 +574,16 @@ class PedidoController extends Controller
 
     // ... (Tus métodos auxiliares getCatalogos, booleanFields, generarCodigo se mantienen igual)
     // Solo asegúrate de NO incluir 'piezas_codigos' en ningún validate si no lo usas.
-    protected function generarCodigo(): string {
+    protected function generarCodigo(): string
+    {
         $year = now()->format('Y');
         $seq = str_pad((string) (Pedido::whereYear('created_at', $year)->max('id') + 1), 6, '0', STR_PAD_LEFT);
         return "RAY-{$year}-{$seq}";
     }
 
-    protected function getCatalogos(): array {
-         $fotosTipos = [
+    protected function getCatalogos(): array
+    {
+        $fotosTipos = [
             'frente'            => 'Frente',
             'perfil_derecho'    => 'Perfil derecho',
             'perfil_izquierdo'  => 'Perfil izquierdo',
@@ -384,11 +596,25 @@ class PedidoController extends Controller
         ];
 
         $cefalometriasTipos = [
-            'usp' => 'Usp', 'unicamp' => 'Unicamp', 'usp_unicamp' => 'Usp/unicamp', 'tweed' => 'Tweed',
-            'steiner' => 'Steiner', 'homem_neto' => 'Homem Neto', 'downs' => 'Downs', 'mcnamara' => 'McNamara',
-            'bimler' => 'Bimler', 'jarabak' => 'Jarabak', 'profis' => 'Profis', 'ricketts' => 'Ricketts',
-            'ricketts_frontal' => 'Ricketts frontal', 'petrovic' => 'Petrovic', 'sassouni' => 'Sassouni',
-            'schwarz' => 'Schwarz', 'trevisi' => 'Trevisi', 'valieri' => 'Valieri', 'rocabado' => 'Rocabado',
+            'usp' => 'Usp',
+            'unicamp' => 'Unicamp',
+            'usp_unicamp' => 'Usp/unicamp',
+            'tweed' => 'Tweed',
+            'steiner' => 'Steiner',
+            'homem_neto' => 'Homem Neto',
+            'downs' => 'Downs',
+            'mcnamara' => 'McNamara',
+            'bimler' => 'Bimler',
+            'jarabak' => 'Jarabak',
+            'profis' => 'Profis',
+            'ricketts' => 'Ricketts',
+            'ricketts_frontal' => 'Ricketts frontal',
+            'petrovic' => 'Petrovic',
+            'sassouni' => 'Sassouni',
+            'schwarz' => 'Schwarz',
+            'trevisi' => 'Trevisi',
+            'valieri' => 'Valieri',
+            'rocabado' => 'Rocabado',
             'adenoides' => 'Adenoides',
         ];
 
@@ -401,17 +627,46 @@ class PedidoController extends Controller
         return [$fotosTipos, $cefalometriasTipos, $documentaciones];
     }
 
-    protected function booleanFields(): array {
+    protected function booleanFields(): array
+    {
         return [
-            'rx_panoramica_convencional', 'rx_panoramica_trazado_implante', 'rx_panoramica_atm_boca_abierta_cerrada',
-            'rx_teleradiografia_lateral', 'rx_teleradiografia_frontal_pa', 'rx_teleradiografia_waters', 'rx_teleradiografia_indice_carpal_edad_osea',
-            'rx_interproximal_premolares_derecho', 'rx_interproximal_premolares_izquierdo', 'rx_interproximal_molares_derecho', 'rx_interproximal_molares_izquierdo',
-            'rx_periapical_dientes_senalados', 'rx_periapical_status_radiografico', 'rx_periapical_tecnica_clark',
+            'rx_panoramica_convencional',
+            'rx_panoramica_trazado_implante',
+            'rx_panoramica_atm_boca_abierta_cerrada',
+            'rx_teleradiografia_lateral',
+            'rx_teleradiografia_frontal_pa',
+            'rx_teleradiografia_waters',
+            'rx_teleradiografia_indice_carpal_edad_osea',
+            'rx_interproximal_premolares_derecho',
+            'rx_interproximal_premolares_izquierdo',
+            'rx_interproximal_molares_derecho',
+            'rx_interproximal_molares_izquierdo',
+            'rx_periapical_dientes_senalados',
+            'rx_periapical_status_radiografico',
+            'rx_periapical_tecnica_clark',
             'rx_con_informe',
-            'intraoral_maxilar_superior', 'intraoral_mandibula', 'intraoral_maxilar_mandibula_completa', 'intraoral_modelo_con_base', 'intraoral_modelo_sin_base',
-            'ct_maxilar_completa', 'ct_mandibula_completa', 'ct_maxilar_arco_cigomatico', 'ct_atm', 'ct_parcial', 'ct_region_senalada_abajo',
-            'entrega_pdf', 'entrega_papel_fotografico', 'entrega_dicom', 'entrega_software_visualizacion',
-            'finalidad_implantes', 'finalidad_dientes_incluidos', 'finalidad_terceros_molares', 'finalidad_supernumerarios', 'finalidad_perforacion_radicular', 'finalidad_sospecha_fractura', 'finalidad_patologia',
+            'intraoral_maxilar_superior',
+            'intraoral_mandibula',
+            'intraoral_maxilar_mandibula_completa',
+            'intraoral_modelo_con_base',
+            'intraoral_modelo_sin_base',
+            'ct_maxilar_completa',
+            'ct_mandibula_completa',
+            'ct_maxilar_arco_cigomatico',
+            'ct_atm',
+            'ct_parcial',
+            'ct_region_senalada_abajo',
+            'entrega_pdf',
+            'entrega_papel_fotografico',
+            'entrega_dicom',
+            'entrega_software_visualizacion',
+            'finalidad_implantes',
+            'finalidad_dientes_incluidos',
+            'finalidad_terceros_molares',
+            'finalidad_supernumerarios',
+            'finalidad_perforacion_radicular',
+            'finalidad_sospecha_fractura',
+            'finalidad_patologia',
         ];
     }
 }

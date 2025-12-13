@@ -5,23 +5,16 @@
     $isAdmin   = $u && $u->hasRole('admin');
     $esClinica = $u && $u->hasRole('clinica');
 
-    // Clínica fija para rol clínica
-    $clinicaFijaId = $esClinica ? (int) ($u->clinica_id ?? 0) : 0;
-    $clinicaFija   = null;
+    $fechaValor = old('fecha_hora', optional($consulta->fecha_hora ?? now())->format('Y-m-d\TH:i'));
+    $pacienteSeleccionado = old('paciente_id', $consulta->paciente_id ?? ($pacienteId ?? ''));
 
+    // Clinica fija para rol clinica
+    $clinicaFijaId = $esClinica ? (int) ($u->clinica_id ?? 0) : 0;
+
+    $clinicaFija = null;
     if ($esClinica && $clinicaFijaId) {
         $clinicaFija = ($clinicas ?? collect())->firstWhere('id', $clinicaFijaId);
     }
-
-    $fechaValor = old('fecha_hora', optional($consulta->fecha_hora ?? now())->format('Y-m-d\TH:i'));
-    $pacienteSeleccionado = (int) old('paciente_id', $consulta->paciente_id ?? ($pacienteId ?? 0));
-
-    // Si viene paciente preseleccionado, intentamos inferir su clínica (para admin)
-    $pacienteObj = ($pacientes ?? collect())->firstWhere('id', $pacienteSeleccionado);
-    $pacienteClinicaId = (int) optional($pacienteObj)->clinica_id;
-
-    // Clínica seleccionada (admin): old > consulta > clínica del paciente preseleccionado
-    $clinicaSeleccionada = (int) old('clinica_id', $consulta->clinica_id ?? $pacienteClinicaId);
 @endphp
 
 <div class="row">
@@ -30,24 +23,22 @@
             <label for="clinica_id">Clínica</label>
 
             @if($esClinica)
-                {{-- Rol clínica: clínica fija --}}
-                <input type="hidden" name="clinica_id" value="{{ $clinicaFijaId }}">
+                <input type="hidden" name="clinica_id"
+                       value="{{ old('clinica_id', $consulta->clinica_id ?? $clinicaFijaId) }}">
 
                 <input type="text" class="form-control"
-                       value="{{ $clinicaFija->nombre ?? 'Tu clínica (no asignada)' }}"
-                       readonly>
+                       value="{{ $clinicaFija->nombre ?? 'Tu clínica (no asignada)' }}" readonly>
 
                 @error('clinica_id')
                     <span class="invalid-feedback d-block">{{ $message }}</span>
                 @enderror
             @else
-                {{-- Admin/otros: puede elegir --}}
                 <select name="clinica_id" id="clinica_id"
                         class="form-control @error('clinica_id') is-invalid @enderror" required>
                     <option value="">-- Seleccione clínica --</option>
-                    @foreach(($clinicas ?? collect()) as $clinica)
+                    @foreach($clinicas as $clinica)
                         <option value="{{ $clinica->id }}"
-                            {{ $clinicaSeleccionada === (int) $clinica->id ? 'selected' : '' }}>
+                            {{ (int) old('clinica_id', $consulta->clinica_id ?? 0) === (int) $clinica->id ? 'selected' : '' }}>
                             {{ $clinica->nombre }}
                         </option>
                     @endforeach
@@ -66,19 +57,11 @@
             <select name="paciente_id" id="paciente_id"
                     class="form-control @error('paciente_id') is-invalid @enderror" required>
                 <option value="">-- Seleccione paciente --</option>
-
-                @foreach(($pacientes ?? collect()) as $p)
-                    @php
-                        $pid = (int) $p->id;
-                        $cid = (int) ($p->clinica_id ?? 0);
-                        $selected = ($pacienteSeleccionado === $pid);
-                    @endphp
-
-                    <option value="{{ $pid }}"
-                            data-clinica="{{ $cid }}"
-                            {{ $selected ? 'selected' : '' }}>
+                @foreach($pacientes as $p)
+                    <option value="{{ $p->id }}"
+                        {{ (int) $pacienteSeleccionado === (int) $p->id ? 'selected' : '' }}>
                         {{ $p->nombre }} {{ $p->apellido }}
-                        @if(!$esClinica && $p->clinica)
+                        @if($isAdmin && $p->clinica)
                             ({{ $p->clinica->nombre }})
                         @endif
                     </option>
@@ -88,12 +71,6 @@
             @error('paciente_id')
                 <span class="invalid-feedback">{{ $message }}</span>
             @enderror
-
-            @if(!$esClinica)
-                <small class="form-text text-muted">
-                    El listado se filtra por clínica seleccionada.
-                </small>
-            @endif
         </div>
     </div>
 
@@ -214,51 +191,3 @@
         Cancelar
     </a>
 </div>
-
-@if(!$esClinica)
-    <script>
-        (function () {
-            const selClinica  = document.getElementById('clinica_id');
-            const selPaciente = document.getElementById('paciente_id');
-            if (!selClinica || !selPaciente) return;
-
-            const allOptions = Array.from(selPaciente.options).map(o => ({
-                value: o.value,
-                text: o.text,
-                clinica: o.getAttribute('data-clinica') || '',
-                selected: o.selected,
-                isPlaceholder: o.value === ''
-            }));
-
-            function rebuildPatients() {
-                const cid = String(selClinica.value || '');
-                const prev = String(selPaciente.value || '');
-
-                selPaciente.innerHTML = '';
-                allOptions.forEach(o => {
-                    if (o.isPlaceholder) {
-                        const opt = new Option(o.text, o.value);
-                        selPaciente.add(opt);
-                        return;
-                    }
-
-                    // Si no hay clínica seleccionada, mostramos todos (no rompe nada)
-                    if (!cid || String(o.clinica) === cid) {
-                        const opt = new Option(o.text, o.value);
-                        opt.setAttribute('data-clinica', o.clinica);
-                        selPaciente.add(opt);
-                    }
-                });
-
-                // Si el paciente anterior sigue existiendo, lo restauramos; si no, volvemos al placeholder
-                const exists = Array.from(selPaciente.options).some(o => o.value === prev);
-                selPaciente.value = exists ? prev : '';
-            }
-
-            selClinica.addEventListener('change', rebuildPatients);
-
-            // Primera carga: filtra según clínica seleccionada por defecto
-            rebuildPatients();
-        })();
-    </script>
-@endif
