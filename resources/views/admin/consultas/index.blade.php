@@ -12,6 +12,12 @@
         </div>
     @endif
 
+    @php
+        $u = auth()->user();
+        $isAdmin = $u && $u->hasRole('admin');
+        $clinicaNombre = ($clinicas->first()->nombre ?? null);
+    @endphp
+
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <form method="GET" action="{{ route('admin.consultas.index') }}" class="form-inline">
@@ -26,15 +32,23 @@
                     </span>
                 </div>
 
-                <select name="clinica_id" class="form-control form-control-sm" onchange="this.form.submit()">
-                    <option value="">Todas las clínicas</option>
-                    @foreach($clinicas as $c)
-                        <option value="{{ $c->id }}"
-                            {{ (string)$clinicaId === (string)$c->id ? 'selected' : '' }}>
-                            {{ $c->nombre }}
-                        </option>
-                    @endforeach
-                </select>
+                @if($isAdmin)
+                    <select name="clinica_id" class="form-control form-control-sm" onchange="this.form.submit()">
+                        <option value="">Todas las clínicas</option>
+                        @foreach($clinicas as $c)
+                            <option value="{{ $c->id }}"
+                                {{ (string)$clinicaId === (string)$c->id ? 'selected' : '' }}>
+                                {{ $c->nombre }}
+                            </option>
+                        @endforeach
+                    </select>
+                @else
+                    {{-- Clínica fija (multi-tenant) --}}
+                    <input type="hidden" name="clinica_id" value="{{ $clinicaId }}">
+                    <span class="ml-2 badge badge-info">
+                        Clínica: {{ $clinicaNombre ?: '—' }}
+                    </span>
+                @endif
             </form>
 
             @can('consultas.create')

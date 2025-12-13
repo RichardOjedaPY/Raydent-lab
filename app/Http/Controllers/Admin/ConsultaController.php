@@ -21,8 +21,18 @@ class ConsultaController extends Controller
 
     public function index(Request $request)
     {
-        $search    = trim((string) $request->get('search', ''));
-        $clinicaId = $request->get('clinica_id');
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        // Si es clínica y no tiene clínica asignada, bloqueamos
+        if (! $isAdmin && $user->hasRole('clinica') && ! $user->clinica_id) {
+            abort(403, 'Usuario clínica sin clínica asignada.');
+        }
+
+        $search = trim((string) $request->get('search', ''));
+
+        // 🔒 Multi-tenant: si no es admin, fija clinica_id
+        $clinicaId = $isAdmin ? $request->get('clinica_id') : ($user->clinica_id);
 
         $consultas = Consulta::with(['paciente', 'clinica', 'profesional'])
             ->when($clinicaId, function ($q) use ($clinicaId) {
@@ -39,9 +49,10 @@ class ConsultaController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        $clinicas = Clinica::where('is_active', true)
-            ->orderBy('nombre')
-            ->get();
+        // Para el filtro: admin ve todas, clínica solo su clínica
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
 
         return view('admin.consultas.index', compact(
             'consultas', 'clinicas', 'search', 'clinicaId'
@@ -50,20 +61,38 @@ class ConsultaController extends Controller
 
     public function create(Request $request)
     {
-        $consulta  = new Consulta();
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
 
-        $clinicas = Clinica::where('is_active', true)
-            ->orderBy('nombre')
-            ->get();
+        if (! $isAdmin && $user->hasRole('clinica') && ! $user->clinica_id) {
+            abort(403, 'Usuario clínica sin clínica asignada.');
+        }
 
-        // Opcional: si viene con ?paciente_id= preseleccionamos
+        $consulta = new Consulta();
+
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
+
+        // Opcional: si viene con ?paciente_id= preseleccionamos (pero debe ser de su clínica si no es admin)
         $pacienteId = $request->get('paciente_id');
 
         $pacientes = Paciente::with('clinica')
+            ->when(! $isAdmin && $user->clinica_id, function ($q) use ($user) {
+                $q->where('clinica_id', $user->clinica_id);
+            })
             ->orderBy('apellido')
             ->orderBy('nombre')
-            ->limit(200) // para no traer miles de golpe
+            ->limit(200)
             ->get();
+
+        // Si viene paciente_id y no corresponde (multi-tenant), lo anulamos
+        if ($pacienteId && ! $isAdmin && $user->clinica_id) {
+            $p = $pacientes->firstWhere('id', (int) $pacienteId);
+            if (! $p) {
+                $pacienteId = null;
+            }
+        }
 
         return view('admin.consultas.create', compact(
             'consulta', 'clinicas', 'pacientes', 'pacienteId'
@@ -72,8 +101,16 @@ class ConsultaController extends Controller
 
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'clinica_id'             => ['required', 'integer', 'exists:clinicas,id'],
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        if (! $isAdmin && $user->hasRole('clinica') && ! $user->clinica_id) {
+            abort(403, 'Usuario clínica sin clínica asignada.');
+        }
+
+        $rules = [
+            // 🔒 Admin elige clínica, NO admin se fuerza por backend
+            'clinica_id'             => $isAdmin ? ['required', 'integer', 'exists:clinicas,id'] : ['nullable'],
             'paciente_id'            => ['required', 'integer', 'exists:pacientes,id'],
             'fecha_hora'             => ['required', 'date'],
             'motivo_consulta'        => ['required', 'string', 'max:255'],
@@ -85,17 +122,24 @@ class ConsultaController extends Controller
             'diagnostico_presuntivo' => ['nullable', 'string'],
             'plan_tratamiento'       => ['nullable', 'string'],
             'observaciones'          => ['nullable', 'string'],
-        ]);
+        ];
 
-        // Seguridad: el paciente debe pertenecer a la clínica elegida
+        $data = $request->validate($rules);
+
+        // 🔒 Multi-tenant: si no es admin, se fuerza clinica_id
+        if (! $isAdmin) {
+            $data['clinica_id'] = $user->clinica_id;
+        }
+
+        // Seguridad: el paciente debe pertenecer a la clínica final
         $paciente = Paciente::findOrFail($data['paciente_id']);
         if ((int) $paciente->clinica_id !== (int) $data['clinica_id']) {
             return back()
-                ->withErrors(['paciente_id' => 'El paciente seleccionado no pertenece a la clínica indicada.'])
+                ->withErrors(['paciente_id' => 'El paciente seleccionado no pertenece a tu clínica.'])
                 ->withInput();
         }
 
-        $data['user_id'] = $request->user()->id;
+        $data['user_id'] = $user->id;
 
         $consulta = Consulta::create($data);
 
@@ -104,20 +148,42 @@ class ConsultaController extends Controller
             ->with('success', 'Consulta registrada correctamente.');
     }
 
-    public function show(Consulta $consulta)
+    public function show(Consulta $consulta, Request $request)
     {
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        // 🔒 Multi-tenant: clínica solo puede ver su clínica
+        if (! $isAdmin && $user->hasRole('clinica')) {
+            if (! $user->clinica_id || (int) $consulta->clinica_id !== (int) $user->clinica_id) {
+                abort(403);
+            }
+        }
+
         $consulta->load(['paciente', 'clinica', 'profesional']);
 
         return view('admin.consultas.show', compact('consulta'));
     }
 
-    public function edit(Consulta $consulta)
+    public function edit(Consulta $consulta, Request $request)
     {
-        $clinicas = Clinica::where('is_active', true)
-            ->orderBy('nombre')
-            ->get();
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        if (! $isAdmin && $user->hasRole('clinica')) {
+            if (! $user->clinica_id || (int) $consulta->clinica_id !== (int) $user->clinica_id) {
+                abort(403);
+            }
+        }
+
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
 
         $pacientes = Paciente::with('clinica')
+            ->when(! $isAdmin && $user->clinica_id, function ($q) use ($user) {
+                $q->where('clinica_id', $user->clinica_id);
+            })
             ->orderBy('apellido')
             ->orderBy('nombre')
             ->limit(200)
@@ -130,8 +196,17 @@ class ConsultaController extends Controller
 
     public function update(Request $request, Consulta $consulta)
     {
-        $data = $request->validate([
-            'clinica_id'             => ['required', 'integer', 'exists:clinicas,id'],
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        if (! $isAdmin && $user->hasRole('clinica')) {
+            if (! $user->clinica_id || (int) $consulta->clinica_id !== (int) $user->clinica_id) {
+                abort(403);
+            }
+        }
+
+        $rules = [
+            'clinica_id'             => $isAdmin ? ['required', 'integer', 'exists:clinicas,id'] : ['nullable'],
             'paciente_id'            => ['required', 'integer', 'exists:pacientes,id'],
             'fecha_hora'             => ['required', 'date'],
             'motivo_consulta'        => ['required', 'string', 'max:255'],
@@ -143,12 +218,18 @@ class ConsultaController extends Controller
             'diagnostico_presuntivo' => ['nullable', 'string'],
             'plan_tratamiento'       => ['nullable', 'string'],
             'observaciones'          => ['nullable', 'string'],
-        ]);
+        ];
+
+        $data = $request->validate($rules);
+
+        if (! $isAdmin) {
+            $data['clinica_id'] = $user->clinica_id;
+        }
 
         $paciente = Paciente::findOrFail($data['paciente_id']);
         if ((int) $paciente->clinica_id !== (int) $data['clinica_id']) {
             return back()
-                ->withErrors(['paciente_id' => 'El paciente seleccionado no pertenece a la clínica indicada.'])
+                ->withErrors(['paciente_id' => 'El paciente seleccionado no pertenece a tu clínica.'])
                 ->withInput();
         }
 
@@ -159,8 +240,17 @@ class ConsultaController extends Controller
             ->with('success', 'Consulta actualizada correctamente.');
     }
 
-    public function destroy(Consulta $consulta)
+    public function destroy(Consulta $consulta, Request $request)
     {
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
+
+        if (! $isAdmin && $user->hasRole('clinica')) {
+            if (! $user->clinica_id || (int) $consulta->clinica_id !== (int) $user->clinica_id) {
+                abort(403);
+            }
+        }
+
         $consulta->delete();
 
         return redirect()
