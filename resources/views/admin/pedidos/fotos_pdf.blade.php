@@ -92,17 +92,49 @@
 
     $pacienteNombre = trim(($pedido->paciente->apellido ?? '').' '.($pedido->paciente->nombre ?? ''));
     $doctor = $pedido->doctor_nombre ?: '—';
-    $fecha  = $pedido->fecha_solicitud ?: optional($pedido->created_at)->format('Y-m-d') ?: now()->format('Y-m-d');
 
-    // Edad (si existe fecha_nacimiento)
+    // ✅ Fecha (sin hora)
+    $fechaRaw = $pedido->fecha_solicitud
+        ?: optional($pedido->created_at)->toDateString()
+        ?: now()->toDateString();
+
+    try {
+        $fechaTxt = Carbon::parse($fechaRaw)->format('Y-m-d');
+    } catch (\Throwable $e) {
+        $fechaTxt = (string) $fechaRaw;
+    }
+
+    // ✅ Edad: primero desde paciente->edad, si no desde fecha_nacimiento (sin decimales)
     $edadTxt = '—';
-    $dob = optional($pedido->paciente)->fecha_nacimiento ?? null;
-    if ($dob) {
-        $ref = $pedido->fecha_solicitud ? Carbon::parse($pedido->fecha_solicitud) : now();
-        $birth = Carbon::parse($dob);
-        $years = $birth->diffInYears($ref);
-        $months = $birth->copy()->addYears($years)->diffInMonths($ref);
-        $edadTxt = "{$years}a, {$months}m";
+    $pac = $pedido->paciente ?? null;
+
+    if ($pac) {
+        if (!is_null($pac->edad) && $pac->edad !== '') {
+            $edadTxt = (int) $pac->edad . ' años';
+        } elseif (!empty($pac->fecha_nacimiento)) {
+            try {
+                $ref   = Carbon::parse($fechaRaw);
+                $birth = Carbon::parse($pac->fecha_nacimiento);
+
+                $years  = $birth->diffInYears($ref); // int
+                $months = $birth->copy()->addYears($years)->diffInMonths($ref); // int
+
+                $edadTxt = $months > 0 ? "{$years}a, {$months}m" : "{$years}a";
+            } catch (\Throwable $e) {
+                $edadTxt = '—';
+            }
+        }
+    }
+
+    // ✅ Sexo/Género: tu campo es "genero" (M/F/O)
+    $sexoTxt = '—';
+    if ($pac) {
+        $sexoTxt = match ($pac->genero ?? null) {
+            'M' => 'Masculino',
+            'F' => 'Femenino',
+            'O' => 'Otro',
+            default => '—',
+        };
     }
 
     // Orden EXACTO del ejemplo
@@ -117,7 +149,9 @@
         <td style="width:70%;">
             <div class="hdr-title">{{ $pacienteNombre ?: 'Paciente' }}</div>
             <div class="hdr-sub">Dr(a). {{ $doctor }}</div>
-            <div class="hdr-meta">Edad: {{ $edadTxt }} · Fecha: {{ $fecha }} · Sexo: {{ $pedido->paciente->sexo ?? '—' }}</div>
+            <div class="hdr-meta">
+                Edad: {{ $edadTxt }} · Fecha: {{ $fechaTxt }} · Sexo: {{ $sexoTxt }}
+            </div>
         </td>
         <td class="hdr-right" style="width:30%;">
             Clínica: <strong>{{ $pedido->clinica->nombre ?? '—' }}</strong><br>

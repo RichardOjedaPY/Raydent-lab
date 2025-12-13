@@ -1,22 +1,57 @@
 @csrf
 
+@php
+    $u = auth()->user();
+    $esClinica = $u && $u->hasRole('clinica');
+
+    // Clinica fija para el rol clinica
+    $clinicaFijaId = $esClinica ? (int) ($u->clinica_id ?? 0) : 0;
+
+    // Para mostrar el nombre sin romper nada (usa $clinicas si viene cargado)
+    $clinicaFija = null;
+    if ($esClinica && $clinicaFijaId) {
+        $clinicaFija = ($clinicas ?? collect())->firstWhere('id', $clinicaFijaId);
+    }
+
+    // Valor inicial de edad (si ya existe en BD o viene de old)
+    $edadInicial = old('edad', $paciente->edad ?? '');
+@endphp
+
 <div class="row">
     <div class="col-md-4">
         <div class="form-group">
             <label for="clinica_id">Clínica</label>
-            <select name="clinica_id" id="clinica_id"
-                    class="form-control @error('clinica_id') is-invalid @enderror" required>
-                <option value="">-- Seleccione clínica --</option>
-                @foreach($clinicas as $clinica)
-                    <option value="{{ $clinica->id }}"
-                        {{ (int) old('clinica_id', $paciente->clinica_id ?? 0) === $clinica->id ? 'selected' : '' }}>
-                        {{ $clinica->nombre }}
-                    </option>
-                @endforeach
-            </select>
-            @error('clinica_id')
-                <span class="invalid-feedback">{{ $message }}</span>
-            @enderror
+
+            @if($esClinica)
+                {{-- Rol clínica: NO puede elegir. Se fija automáticamente --}}
+                <input type="hidden" name="clinica_id"
+                       value="{{ old('clinica_id', $paciente->clinica_id ?? $clinicaFijaId) }}">
+
+                <input type="text"
+                       class="form-control"
+                       value="{{ $clinicaFija->nombre ?? 'Tu clínica (no asignada)' }}"
+                       readonly>
+
+                @error('clinica_id')
+                    <span class="invalid-feedback d-block">{{ $message }}</span>
+                @enderror
+            @else
+                {{-- Admin/otros: puede elegir --}}
+                <select name="clinica_id" id="clinica_id"
+                        class="form-control @error('clinica_id') is-invalid @enderror" required>
+                    <option value="">-- Seleccione clínica --</option>
+                    @foreach(($clinicas ?? collect()) as $clinica)
+                        <option value="{{ $clinica->id }}"
+                            {{ (int) old('clinica_id', $paciente->clinica_id ?? 0) === (int) $clinica->id ? 'selected' : '' }}>
+                            {{ $clinica->nombre }}
+                        </option>
+                    @endforeach
+                </select>
+
+                @error('clinica_id')
+                    <span class="invalid-feedback">{{ $message }}</span>
+                @enderror
+            @endif
         </div>
     </div>
 
@@ -70,6 +105,21 @@
         </div>
     </div>
 
+    {{-- ✅ NUEVO: Edad --}}
+    <div class="col-md-2">
+        <div class="form-group">
+            <label for="edad">Edad</label>
+            <input type="number" name="edad" id="edad"
+                   min="0" max="130"
+                   class="form-control @error('edad') is-invalid @enderror"
+                   value="{{ $edadInicial }}">
+            @error('edad')
+                <span class="invalid-feedback">{{ $message }}</span>
+            @enderror
+            <small class="text-muted">Se calcula si hay fecha</small>
+        </div>
+    </div>
+
     <div class="col-md-2">
         <div class="form-group">
             <label for="genero">Género</label>
@@ -100,8 +150,10 @@
             @enderror
         </div>
     </div>
+</div>
 
-    <div class="col-md-2">
+<div class="row">
+    <div class="col-md-3">
         <div class="form-group">
             <label for="email">E-mail</label>
             <input type="email" name="email" id="email"
@@ -112,9 +164,7 @@
             @enderror
         </div>
     </div>
-</div>
 
-<div class="row">
     <div class="col-md-6">
         <div class="form-group">
             <label for="direccion">Dirección</label>
@@ -138,7 +188,9 @@
             @enderror
         </div>
     </div>
+</div>
 
+<div class="row">
     <div class="col-md-3">
         <div class="form-group form-check mt-4 pt-2">
             <input type="checkbox" name="is_active" id="is_active"
@@ -167,3 +219,52 @@
         Cancelar
     </a>
 </div>
+
+{{-- ✅ JS: calcular edad al seleccionar fecha --}}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const fecha = document.getElementById('fecha_nacimiento');
+    const edad  = document.getElementById('edad');
+
+    function calcAge(yyyy_mm_dd) {
+        const parts = (yyyy_mm_dd || '').split('-');
+        if (parts.length !== 3) return '';
+
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+        if (!y || !m || !d) return '';
+
+        const hoy = new Date();
+        const nac = new Date(y, m - 1, d);
+
+        let years = hoy.getFullYear() - nac.getFullYear();
+        const mm = hoy.getMonth() - nac.getMonth();
+
+        if (mm < 0 || (mm === 0 && hoy.getDate() < nac.getDate())) {
+            years--;
+        }
+        return (years >= 0) ? years : '';
+    }
+
+    function syncEdad() {
+        const v = (fecha?.value || '').trim();
+
+        if (!v) {
+            // Sin fecha: permitir editar manualmente
+            if (edad) edad.readOnly = false;
+            return;
+        }
+
+        if (edad) {
+            edad.value = calcAge(v);
+            edad.readOnly = true;
+        }
+    }
+
+    if (fecha && edad) {
+        fecha.addEventListener('change', syncEdad);
+        syncEdad();
+    }
+});
+</script>

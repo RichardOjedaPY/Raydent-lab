@@ -15,6 +15,7 @@ class Paciente extends Model
         'apellido',
         'documento',
         'fecha_nacimiento',
+        'edad',              
         'genero',
         'telefono',
         'email',
@@ -24,14 +25,24 @@ class Paciente extends Model
         'observaciones',
     ];
 
+    protected $casts = [
+        'fecha_nacimiento' => 'date',
+        'edad'             => 'integer',
+        'is_active'        => 'boolean',
+    ];
+
     public function clinica()
     {
         return $this->belongsTo(Clinica::class);
     }
+
     public function consultas()
     {
         return $this->hasMany(Consulta::class);
     }
-    
-  
+    public function pedidos()
+{
+    return $this->hasMany(\App\Models\Pedido::class, 'paciente_id');
+}
+
 }
