@@ -187,9 +187,10 @@
                     <div class="form-group">
                         <label for="consulta_id">Consulta (del paciente)</label>
                         <select name="consulta_id" id="consulta_id"
-                            class="form-control @error('consulta_id') is-invalid @enderror">
+                            class="form-control @error('consulta_id') is-invalid @enderror" required>
                             <option value="">-- Seleccione paciente primero --</option>
                         </select>
+
                         @error('consulta_id')
                             <span class="invalid-feedback">{{ $message }}</span>
                         @enderror
