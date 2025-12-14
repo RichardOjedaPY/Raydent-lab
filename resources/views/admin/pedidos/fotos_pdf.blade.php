@@ -13,17 +13,65 @@
         table { border-collapse: collapse; width: 100%; table-layout: fixed; }
         .no-break { page-break-inside: avoid; }
 
-        /* Header */
+        /* Header Profesional */
         .hdr {
-            border: 1px solid #cbd5e1;
-            padding: 6px 8px;
+            border: 2px solid #0369a1;
+            border-radius: 4px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            background: linear-gradient(to bottom, #f8fafc 0%, #ffffff 100%);
+        }
+        .hdr-top {
+            border-bottom: 1px solid #cbd5e1;
+            padding-bottom: 8px;
             margin-bottom: 8px;
         }
-        .hdr-title { font-size: 13px; font-weight: 700; margin: 0; }
-        .hdr-sub   { font-size: 10px; margin: 2px 0 0 0; color: #374151; }
-        .hdr-meta  { font-size: 9px; margin: 2px 0 0 0; color: #6b7280; }
-        .hdr-right { text-align: right; font-size: 9px; color: #6b7280; }
-        .hdr-right strong { color: #111827; }
+        .hdr-logo {
+            height: 40px;
+            max-width: 180px;
+            object-fit: contain;
+        }
+        .hdr-empresa {
+            font-size: 11px;
+            color: #0369a1;
+            font-weight: 600;
+            margin: 2px 0 0 0;
+        }
+        .hdr-title { 
+            font-size: 14px; 
+            font-weight: 700; 
+            margin: 0;
+            color: #0f172a;
+        }
+        .hdr-sub { 
+            font-size: 10px; 
+            margin: 3px 0 0 0; 
+            color: #374151; 
+        }
+        .hdr-meta { 
+            font-size: 9px; 
+            margin: 4px 0 0 0; 
+            color: #64748b;
+            background: #f1f5f9;
+            padding: 4px 6px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+        .hdr-right { 
+            text-align: right; 
+            font-size: 9px; 
+            color: #64748b; 
+        }
+        .hdr-right strong { 
+            color: #0f172a;
+            font-size: 10px;
+        }
+        .hdr-label {
+            font-size: 8px;
+            text-transform: uppercase;
+            color: #94a3b8;
+            letter-spacing: 0.5px;
+        }
 
         /* Boxes - MÁS GRANDES */
         .box {
@@ -99,6 +147,19 @@
 
     $slots = $slots ?? [];
 
+    // Logo
+    $logoPath = public_path('img/raydent-logo.png');
+    $logoSrc = null;
+    if (file_exists($logoPath)) {
+        try {
+            $logoData = file_get_contents($logoPath);
+            $logoMime = 'image/png';
+            $logoSrc = 'data:' . $logoMime . ';base64,' . base64_encode($logoData);
+        } catch (\Throwable $e) {
+            $logoSrc = null;
+        }
+    }
+
     $pacienteNombre = trim(($pedido->paciente->apellido ?? '').' '.($pedido->paciente->nombre ?? ''));
     $doctor = $pedido->doctor_nombre ?: '—';
 
@@ -152,19 +213,42 @@
     $bottom3 = ['intraoral_derecho','intraoral_frontal','intraoral_izquierdo'];
 @endphp
 
-{{-- HEADER --}}
+{{-- HEADER PROFESIONAL --}}
 <table class="hdr no-break">
+    {{-- Fila superior: Logo y datos del pedido --}}
+    <tr class="hdr-top">
+        <td style="width:50%; vertical-align: middle;">
+            @if($logoSrc)
+                <img src="{{ $logoSrc }}" alt="Raydent Lab" class="hdr-logo">
+            @else
+                <div style="font-size: 16px; font-weight: 700; color: #0369a1;">Raydent</div>
+            @endif
+            <div class="hdr-empresa">Radiología Odontológica Digital</div>
+        </td>
+        <td class="hdr-right" style="width:50%; vertical-align: middle;">
+            <div class="hdr-label">Pedido</div>
+            <strong>{{ $pedido->codigo_pedido ?? $pedido->codigo ?? ('#'.$pedido->id) }}</strong>
+            <div style="margin-top: 4px;">
+                <span class="hdr-label">Fecha:</span> <strong>{{ $fechaTxt }}</strong>
+            </div>
+        </td>
+    </tr>
+    
+    {{-- Fila inferior: Datos del paciente --}}
     <tr>
-        <td style="width:70%;">
+        <td style="width:65%; vertical-align: top; padding-top: 8px;">
             <div class="hdr-title">{{ $pacienteNombre ?: 'Paciente' }}</div>
             <div class="hdr-sub">Dr(a). {{ $doctor }}</div>
             <div class="hdr-meta">
-                Edad: {{ $edadTxt }} · Fecha: {{ $fechaTxt }} · Sexo: {{ $sexoTxt }}
+                <strong>Edad:</strong> {{ $edadTxt }} · 
+                <strong>Sexo:</strong> {{ $sexoTxt }}
             </div>
         </td>
-        <td class="hdr-right" style="width:30%;">
-            Clínica: <strong>{{ $pedido->clinica->nombre ?? '—' }}</strong><br>
-            Pedido: <strong>{{ $pedido->codigo_pedido ?? $pedido->codigo ?? ('#'.$pedido->id) }}</strong>
+        <td class="hdr-right" style="width:35%; vertical-align: top; padding-top: 8px;">
+            <div style="margin-bottom: 3px;">
+                <span class="hdr-label">Clínica</span><br>
+                <strong>{{ $pedido->clinica->nombre ?? '—' }}</strong>
+            </div>
         </td>
     </tr>
 </table>
