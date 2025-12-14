@@ -11,13 +11,12 @@ use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\PacienteController;
 use App\Http\Controllers\Admin\ConsultaController;
 use App\Http\Controllers\Admin\PedidoController;
-
 use App\Http\Controllers\Admin\Tecnico\TecnicoPedidoController;
 use App\Http\Controllers\Admin\Tecnico\TecnicoDashboardController;
-
 use App\Http\Controllers\Admin\Clinica\ClinicaDashboardController;
-
 use App\Http\Controllers\Admin\PedidoResultadoController;
+use App\Http\Controllers\Admin\ActivityLogController;
+
 
 Route::get('/', function () {
     return view('welcome');
@@ -63,7 +62,11 @@ Route::middleware(['auth'])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () {
+        Route::get('activity-logs', [ActivityLogController::class, 'index'])
+        ->name('activity-logs.index');
 
+    Route::get('activity-logs/{activity}', [ActivityLogController::class, 'show'])
+        ->name('activity-logs.show');
         /**
          * ============================
          * ADMIN (solo admin)

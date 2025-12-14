@@ -52,5 +52,14 @@ class User extends Authenticatable
         return $this->belongsTo(Clinica::class);
     }
     
-
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->useLogName('usuarios')
+            ->logAll()
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs()
+            ->logExcept(['password', 'remember_token']);
+    }
+    
 }

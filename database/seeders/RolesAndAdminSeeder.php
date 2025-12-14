@@ -52,17 +52,21 @@ class RolesAndAdminSeeder extends Seeder
             'pacientes'    => ['view', 'create', 'update', 'delete'],
             'consultas'    => ['view', 'create', 'update', 'delete'],
             'pedidos'      => ['view', 'create', 'update', 'delete', 'pdf'],
-
+        
             // Seguridad / permisos
             'permissions'  => ['view', 'update'],
-
+        
+            // Auditoría / Activity Logs
+            'activity_logs' => ['view', 'show'],
+        
             // Técnico (módulos nuevos)
             'tecnico_dashboard' => ['view'],
             'tecnico_pedidos'   => ['view', 'trabajar', 'estado', 'archivos', 'fotos'],
-
+        
             // Resultados (módulos nuevos)
             'resultados' => ['view', 'download', 'fotos_pdf'],
         ];
+        
 
         $permisosCreados = [];
 

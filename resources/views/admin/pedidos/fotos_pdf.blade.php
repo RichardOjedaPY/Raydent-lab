@@ -221,7 +221,7 @@
             @if($logoSrc)
                 <img src="{{ $logoSrc }}" alt="Raydent Lab" class="hdr-logo">
             @else
-                <div style="font-size: 16px; font-weight: 700; color: #0369a1;">Raydent</div>
+                <div style="font-size: 16px; font-weight: 700; color: #0369a1;">Raydent Radiología</div>
             @endif
             <div class="hdr-empresa">Radiología Odontológica Digital</div>
         </td>

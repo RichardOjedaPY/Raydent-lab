@@ -139,7 +139,9 @@ class ConsultaController extends Controller
         }
 
         $consulta->load(['paciente', 'clinica', 'profesional']);
-
+        Audit::log('consultas', 'view', 'Consulta visualizada', $consulta, [
+            'consulta_id' => $consulta->id,
+        ]);
         return view('admin.consultas.show', compact('consulta'));
     }
 

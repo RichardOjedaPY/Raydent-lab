@@ -9,6 +9,8 @@ use App\Models\PedidoFotoRealizada;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Barryvdh\DomPDF\Facade\Pdf;
+use App\Support\Audit;
+
 
 class PedidoResultadoController extends Controller
 {
@@ -50,27 +52,29 @@ class PedidoResultadoController extends Controller
         );
 
         $name = $archivo->original_name ?: basename((string) $archivo->path);
-
+        Audit::log('resultados', 'download', 'Archivo descargado', $pedido, [
+            'archivo_id' => $archivo->id,
+            'nombre'     => $name,
+            'ext'        => $archivo->ext,
+            'size'       => $archivo->size,
+        ]);
         return Storage::disk($archivo->disk)->download($archivo->path, $name);
     }
 
     public function verFoto(PedidoFotoRealizada $foto)
     {
-        // Evitar null si no vino cargada la relación
         $foto->loadMissing('pedido');
         $pedido = $foto->pedido ?: Pedido::findOrFail($foto->pedido_id);
-    
+
         $this->assertPuedeVerPedido($pedido);
-    
+
         $disk = $foto->disk ?: 'private';
         $path = (string) ($foto->path ?? '');
-    
+
         abort_unless($path !== '' && Storage::disk($disk)->exists($path), 404, 'Foto no encontrada.');
-    
-        // Extensión confiable (DB -> path)
+
         $ext = strtolower((string) ($foto->ext ?: pathinfo($path, PATHINFO_EXTENSION)));
-    
-        // MIME por extensión (NO depender de fileinfo)
+
         $mimeMap = [
             'jpg'  => 'image/jpeg',
             'jpeg' => 'image/jpeg',
@@ -82,33 +86,40 @@ class PedidoResultadoController extends Controller
             'heic' => 'image/heic',
             'heif' => 'image/heif',
         ];
-    
-        $mime = $foto->mime ?: ($mimeMap[$ext] ?? 'application/octet-stream');
-    
+
+        $mime     = $foto->mime ?: ($mimeMap[$ext] ?? 'application/octet-stream');
         $filename = $foto->original_name ?: ('foto-' . $foto->id . ($ext ? ".{$ext}" : ''));
-    
-        // Si es HEIC/HEIF: muchos navegadores NO lo muestran -> mejor descargar
-        if (in_array($ext, ['heic', 'heif'], true)) {
-            return Storage::disk($disk)->download($path, $filename);
-        }
-    
-        $fullPath = Storage::disk($disk)->path($path);
-    
+
         $headers = [
             'Content-Type'        => $mime,
-            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            'Content-Disposition' => 'inline; filename="' . $filename . '"',
             'Cache-Control'       => 'private, max-age=86400',
         ];
-    
-        // Local driver: servir con response()->file (más confiable)
+
+        // ✅ Log SIEMPRE, antes de devolver respuesta
+        $modo = in_array($ext, ['heic', 'heif'], true) ? 'download' : 'inline';
+
+        Audit::log('resultados', 'view_photo', 'Foto visualizada/descargada', $pedido, [
+            'foto_id' => $foto->id,
+            'slot'    => $foto->slot ?? null,
+            'ext'     => $ext,
+            'modo'    => $modo,
+        ]);
+
+        if ($modo === 'download') {
+            return Storage::disk($disk)->download($path, $filename);
+        }
+
+        $fullPath = Storage::disk($disk)->path($path);
+
         if (is_file($fullPath)) {
             return response()->file($fullPath, $headers);
         }
-    
-        // Fallback (si algún día cambiás a S3 u otro driver)
+
         return Storage::disk($disk)->response($path, $filename, $headers, 'inline');
     }
-    
+
+
 
     public function pdfFotos(Pedido $pedido)
     {
@@ -116,13 +127,17 @@ class PedidoResultadoController extends Controller
 
         $pedido->load(['clinica', 'paciente', 'fotosRealizadas']);
 
-        // Si querés orden consistente:
         $pedido->setRelation(
             'fotosRealizadas',
-            $pedido->fotosRealizadas->sortBy(fn ($f) => (string) $f->slot)->values()
+            $pedido->fotosRealizadas->sortBy(fn($f) => (string) $f->slot)->values()
         );
 
         $slots = PedidoFotoRealizada::SLOTS;
+
+        Audit::log('resultados', 'fotos_pdf', 'Fotos exportadas a PDF', $pedido, [
+            'codigo_pedido' => $pedido->codigo_pedido ?? $pedido->id,
+            'cantidad_fotos' => (int) $pedido->fotosRealizadas->count(),
+        ]);
 
         $pdf = Pdf::loadView('admin.pedidos.fotos_pdf', compact('pedido', 'slots'))
             ->setPaper('a4', 'portrait');

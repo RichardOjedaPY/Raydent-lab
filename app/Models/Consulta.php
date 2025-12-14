@@ -4,10 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
+use App\Models\Concerns\LogsRaydentActivity;
 class Consulta extends Model
 {
-    use HasFactory;
+    use HasFactory,LogsActivity, LogsRaydentActivity;
 
     protected $fillable = [
         'clinica_id',
@@ -42,5 +44,23 @@ class Consulta extends Model
     public function profesional() // usuario que registra
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->useLogName('consultas')
+            ->logAll()
+            ->logOnlyDirty()        // ✅ si cambia 1 letra, se registra
+            ->dontSubmitEmptyLogs();
+    }
+
+    public function getDescriptionForEvent(string $eventName): string
+    {
+        return match ($eventName) {
+            'created' => 'Consulta creada',
+            'updated' => 'Consulta actualizada',
+            'deleted' => 'Consulta eliminada',
+            default   => "Consulta {$eventName}",
+        };
     }
 }

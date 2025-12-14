@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use App\Support\Audit;
 
 class TecnicoPedidoController extends Controller
 {
@@ -50,26 +51,26 @@ class TecnicoPedidoController extends Controller
         // ✅ El técnico ve TODOS los pedidos (de todas las clínicas)
         $query = Pedido::query()
             ->with(['clinica', 'paciente', 'tecnico'])
-            ->when($estado !== '', fn ($w) => $w->where('estado', $estado))
-            ->when($clinicaId > 0, fn ($w) => $w->where('clinica_id', $clinicaId))
+            ->when($estado !== '', fn($w) => $w->where('estado', $estado))
+            ->when($clinicaId > 0, fn($w) => $w->where('clinica_id', $clinicaId))
 
             ->when($ci !== '', function ($w) use ($ci) {
                 $w->where(function ($x) use ($ci) {
                     $x->where('paciente_documento', 'like', "%{$ci}%")
-                      ->orWhereHas('paciente', function ($p) use ($ci) {
-                          $p->where('documento', 'like', "%{$ci}%");
-                      });
+                        ->orWhereHas('paciente', function ($p) use ($ci) {
+                            $p->where('documento', 'like', "%{$ci}%");
+                        });
                 });
             })
 
             ->when($q !== '', function ($w) use ($q) {
                 $w->where(function ($x) use ($q) {
                     $x->where('codigo', 'like', "%{$q}%")
-                      ->orWhere('codigo_pedido', 'like', "%{$q}%")
-                      ->orWhereHas('paciente', function ($p) use ($q) {
-                          $p->where('nombre', 'like', "%{$q}%")
-                            ->orWhere('apellido', 'like', "%{$q}%");
-                      });
+                        ->orWhere('codigo_pedido', 'like', "%{$q}%")
+                        ->orWhereHas('paciente', function ($p) use ($q) {
+                            $p->where('nombre', 'like', "%{$q}%")
+                                ->orWhere('apellido', 'like', "%{$q}%");
+                        });
                 });
             });
 
@@ -78,7 +79,12 @@ class TecnicoPedidoController extends Controller
         $clinicas = Clinica::orderBy('nombre')->get();
 
         return view('admin.tecnico.pedidos.index', compact(
-            'pedidos', 'q', 'estado', 'ci', 'clinicaId', 'clinicas'
+            'pedidos',
+            'q',
+            'estado',
+            'ci',
+            'clinicaId',
+            'clinicas'
         ));
     }
 
@@ -133,32 +139,50 @@ class TecnicoPedidoController extends Controller
         $asignadoA  = (int) ($pedido->tecnico_id ?? 0);
 
         if (! $u->hasRole('admin')) {
-            // Si está asignado a otro técnico real, bloquea
             if (! $sinAsignar && $asignadoA !== (int) $u->id) {
                 abort(403);
             }
-
-            // Si está sin asignar, lo toma
             if ($sinAsignar) {
                 $pedido->tecnico_id = $u->id;
             }
         }
 
-        $pedido->estado = $data['estado'];
+        // ✅ BEFORE (antes de cambiar)
+        $beforeEstado  = $pedido->estado;
+        $beforeTecnico = (int) ($pedido->tecnico_id ?? 0);
 
-        if ($pedido->estado === 'en_proceso') {
+        $nuevoEstado = $data['estado'];
+
+        $pedido->estado = $nuevoEstado;
+
+        if ($nuevoEstado === 'en_proceso') {
             $pedido->fecha_inicio_trabajo = $pedido->fecha_inicio_trabajo ?? now();
         }
 
-        if ($pedido->estado === 'realizado') {
+        if ($nuevoEstado === 'realizado') {
             $pedido->fecha_inicio_trabajo = $pedido->fecha_inicio_trabajo ?? now();
             $pedido->fecha_fin_trabajo    = $pedido->fecha_fin_trabajo ?? now();
         }
 
         $pedido->save();
 
+        // ✅ Log SOLO si realmente cambió algo relevante
+        if ($beforeEstado !== $pedido->estado || $beforeTecnico !== (int) ($pedido->tecnico_id ?? 0)) {
+            Audit::log('tecnico_pedidos', 'estado', 'Técnico cambió estado del pedido', $pedido, [
+                'before' => [
+                    'estado'    => $beforeEstado,
+                    'tecnico_id' => $beforeTecnico,
+                ],
+                'after'  => [
+                    'estado'    => $pedido->estado,
+                    'tecnico_id' => (int) ($pedido->tecnico_id ?? 0),
+                ],
+            ]);
+        }
+
         return back()->with('success', 'Estado actualizado.');
     }
+
 
     public function subirArchivos(Request $r, Pedido $pedido)
     {
@@ -213,6 +237,10 @@ class TecnicoPedidoController extends Controller
                 'path'           => $path,
             ]);
         }
+        Audit::log('tecnico_pedidos', 'uploaded_files', 'Archivos subidos al pedido', $pedido, [
+            'grupo'    => $grupo,
+            'cantidad' => count($r->file('archivos', [])),
+        ]);
 
         return back()->with('success', 'Archivos subidos correctamente.');
     }
@@ -275,6 +303,10 @@ class TecnicoPedidoController extends Controller
                 ]
             );
         }
+        $slotsActualizados = array_keys(array_filter($r->file('fotos', []) ?? []));
+        Audit::log('tecnico_pedidos', 'uploaded_photos', 'Fotos subidas/actualizadas', $pedido, [
+            'slots' => array_values($slotsActualizados),
+        ]);
 
         return back()->with('success', 'Fotos guardadas.');
     }

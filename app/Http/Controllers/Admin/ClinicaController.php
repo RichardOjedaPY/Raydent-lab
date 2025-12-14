@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Clinica;
 use Illuminate\Http\Request;
+use App\Support\Audit;
+ 
 
 class ClinicaController extends Controller
 {
@@ -103,22 +105,37 @@ class ClinicaController extends Controller
 
     public function destroy(Clinica $clinica)
     {
-        // Por ahora no borramos físico, solo desactivamos.
+        $before = (bool) $clinica->is_active;
+    
+        // Desactivación lógica
         $clinica->is_active = false;
         $clinica->save();
-
+    
+        Audit::log('clinicas', 'disabled', 'Clínica desactivada', $clinica, [
+            'before_is_active' => $before,
+            'after_is_active'  => (bool) $clinica->is_active,
+        ]);
+    
         return redirect()
             ->route('admin.clinicas.index')
             ->with('success', 'Clínica desactivada correctamente.');
     }
-
+    
     public function toggleStatus(Clinica $clinica)
     {
+        $before = (bool) $clinica->is_active;
+    
         $clinica->is_active = ! $clinica->is_active;
         $clinica->save();
-
+    
+        Audit::log('clinicas', 'status_toggled', 'Estado de clínica actualizado', $clinica, [
+            'before_is_active' => $before,
+            'after_is_active'  => (bool) $clinica->is_active,
+        ]);
+    
         return redirect()
             ->route('admin.clinicas.index')
             ->with('success', 'Estado de la clínica actualizado.');
     }
+    
 }

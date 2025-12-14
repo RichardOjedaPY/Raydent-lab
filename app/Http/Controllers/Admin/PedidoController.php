@@ -15,6 +15,10 @@ use Illuminate\Validation\Rule;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\Consulta;
 use App\Models\User;
+use App\Support\Audit;
+use Illuminate\Support\Arr;
+
+
 
 class PedidoController extends Controller
 {
@@ -359,6 +363,11 @@ class PedidoController extends Controller
 
         // Guardar relaciones (Fotos, Cefalo, Piezas)
         $this->guardarRelaciones($pedido, $request);
+        $after = $this->snapshotRelaciones($pedido);
+
+        Audit::log('pedidos', 'created', 'Pedido creado', $pedido, [
+            'codigo_pedido' => $pedido->codigo_pedido ?? $pedido->id,
+        ]);
 
         return redirect()
             ->route('admin.pedidos.index')
@@ -376,7 +385,6 @@ class PedidoController extends Controller
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
 
         $data = $request->validate([
-            // admin elige clinica, clinica NO
             'clinica_id'         => [$isAdmin ? 'required' : 'nullable', 'integer', 'exists:clinicas,id'],
             'paciente_id'        => ['required', 'integer', 'exists:pacientes,id'],
             'consulta_id'        => ['nullable', 'integer', 'exists:consultas,id'],
@@ -407,12 +415,10 @@ class PedidoController extends Controller
             'piezas_tomografia_codigos' => ['nullable', 'string'],
         ]);
 
-        // 🔒 Multi-tenant: rol clínica no puede cambiar clinica_id
         if (! $isAdmin) {
             $data['clinica_id'] = (int) $user->clinica_id;
         }
 
-        // ✅ Paciente debe pertenecer a clínica
         $paciente = Paciente::findOrFail($data['paciente_id']);
         if ((int) $paciente->clinica_id !== (int) $data['clinica_id']) {
             return back()
@@ -420,7 +426,6 @@ class PedidoController extends Controller
                 ->withInput();
         }
 
-        // ✅ Consulta (si viene) debe corresponder a ese paciente y clínica
         if (! empty($data['consulta_id'])) {
             $consulta = Consulta::findOrFail($data['consulta_id']);
             if ((int) $consulta->clinica_id !== (int) $data['clinica_id'] || (int) $consulta->paciente_id !== (int) $data['paciente_id']) {
@@ -430,12 +435,15 @@ class PedidoController extends Controller
             }
         }
 
-        // ✅ Set seguro (NO fill de IDs)
+        // ===== BEFORE (pedido + relaciones) =====
+        $beforeRel = $this->snapshotRelaciones($pedido);
+
+        // Set seguro (IDs)
         $pedido->clinica_id  = $data['clinica_id'];
         $pedido->paciente_id = $data['paciente_id'];
         $pedido->consulta_id = $data['consulta_id'] ?? null;
 
-        // resto igual
+        // Resto
         $pedido->fill($request->only([
             'prioridad',
             'doctor_nombre',
@@ -458,13 +466,40 @@ class PedidoController extends Controller
             $pedido->{$field} = $request->boolean($field);
         }
 
+        // Capturar cambios “una letra” (solo campos modificados)
+        $dirty = $pedido->getDirty();
+        $beforeAttrs = Arr::only($pedido->getOriginal(), array_keys($dirty));
+
         $pedido->save();
 
+        // AFTER de atributos (solo lo que cambió)
+        if (!empty($dirty)) {
+            $afterAttrs = Arr::only($pedido->fresh()->toArray(), array_keys($dirty));
+            if ($beforeAttrs !== $afterAttrs) {
+                Audit::log('pedidos', 'updated', 'Pedido actualizado', $pedido, [
+                    'before' => $beforeAttrs,
+                    'after'  => $afterAttrs,
+                ]);
+            }
+        }
+
+        // ===== Reset y recrear relaciones UNA sola vez =====
         $pedido->fotos()->delete();
         $pedido->cefalometrias()->delete();
         $pedido->piezas()->delete();
 
         $this->guardarRelaciones($pedido, $request);
+
+        // ===== AFTER relaciones =====
+        $pedido->load(['fotos', 'cefalometrias', 'piezas']);
+        $afterRel = $this->snapshotRelaciones($pedido);
+
+        if ($beforeRel !== $afterRel) {
+            Audit::log('pedidos', 'relaciones_updated', 'Selecciones del pedido actualizadas', $pedido, [
+                'before' => $beforeRel,
+                'after'  => $afterRel,
+            ]);
+        }
 
         return redirect()
             ->route('admin.pedidos.index')
@@ -518,7 +553,7 @@ class PedidoController extends Controller
     public function show(Pedido $pedido)
     {
         $user = auth()->user();
-    
+
         // ✅ Reglas de acceso:
         // - admin: puede ver todo
         // - tecnico: puede ver todo (necesita ver lo solicitado por la clínica)
@@ -527,7 +562,7 @@ class PedidoController extends Controller
         $isAdmin   = $user->hasRole('admin');
         $isTecnico = $user->hasRole('tecnico');
         $isClinica = $user->hasRole('clinica');
-    
+
         if (! $isAdmin && ! $isTecnico) {
             // si no es admin ni técnico, aplicamos restricción por clínica
             if ($isClinica) {
@@ -538,7 +573,7 @@ class PedidoController extends Controller
                 abort(403);
             }
         }
-    
+
         $pedido->load([
             'clinica',
             'paciente',
@@ -549,9 +584,9 @@ class PedidoController extends Controller
             'fotosRealizadas',  // ✅ fotos subidas por técnico
             'tecnico',
         ]);
-    
+
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
-    
+
         return view('admin.pedidos.show', compact(
             'pedido',
             'fotosTipos',
@@ -559,74 +594,94 @@ class PedidoController extends Controller
             'documentaciones'
         ));
     }
-    
+
 
 
 
     public function destroy(Pedido $pedido)
-    {
-        $user = auth()->user();
-        if (! $user->hasRole('admin') && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
-            abort(403);
-        }
-
-        $pedido->delete();
-        return redirect()->route('admin.pedidos.index')->with('success', 'Pedido eliminado.');
-    }
-
-    public function pdf(Pedido $pedido)
 {
     $user = auth()->user();
-
-    // ✅ Acceso:
-    // - admin: todo
-    // - tecnico: todo (puede exportar)
-    // - clinica: solo su clínica
-    // - otros: 403
-    $isAdmin   = $user->hasRole('admin');
-    $isTecnico = $user->hasRole('tecnico');
-    $isClinica = $user->hasRole('clinica');
-
-    if (! $isAdmin && ! $isTecnico) {
-        if ($isClinica) {
-            if ((int) $pedido->clinica_id !== (int) $user->clinica_id) {
-                abort(403);
-            }
-        } else {
-            abort(403);
-        }
+    if (! $user->hasRole('admin') && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
+        abort(403);
     }
 
-    $pedido->load(['clinica', 'paciente']);
+    $snapshot = [
+        'pedido' => [
+            'id' => $pedido->id,
+            'codigo_pedido' => $pedido->codigo_pedido ?? null,
+            'clinica_id' => $pedido->clinica_id,
+            'paciente_id' => $pedido->paciente_id,
+            'estado' => $pedido->estado,
+        ],
+        'relaciones' => $this->snapshotRelaciones($pedido),
+    ];
 
-    // Separar piezas para el PDF
-    $periapical = PedidoPieza::where('pedido_id', $pedido->id)
-        ->where('tipo', 'periapical')
-        ->pluck('pieza_codigo')
-        ->map(fn ($v) => (string) $v)
-        ->all();
+    Audit::log('pedidos', 'deleted', 'Pedido eliminado', $pedido, $snapshot);
 
-    $tomografia = PedidoPieza::where('pedido_id', $pedido->id)
-        ->where('tipo', 'tomografia')
-        ->pluck('pieza_codigo')
-        ->map(fn ($v) => (string) $v)
-        ->all();
+    $pedido->delete();
 
-    $fotosSeleccionadas = PedidoFoto::where('pedido_id', $pedido->id)->pluck('tipo')->all();
-    $cefalometriasSeleccionadas = PedidoCefalometria::where('pedido_id', $pedido->id)->pluck('tipo')->all();
-
-    $pdf = Pdf::loadView('admin.pedidos.pdf', [
-        'pedido'                     => $pedido,
-        'periapical'                 => $periapical,
-        'tomografia'                 => $tomografia,
-        'fotosSeleccionadas'         => $fotosSeleccionadas,
-        'cefalometriasSeleccionadas' => $cefalometriasSeleccionadas,
-    ])->setPaper('a4');
-
-    $nombre = 'pedido-' . ($pedido->codigo_pedido ?? $pedido->id) . '.pdf';
-
-    return $pdf->stream($nombre);
+    return redirect()
+        ->route('admin.pedidos.index')
+        ->with('success', 'Pedido eliminado.');
 }
+
+
+    public function pdf(Pedido $pedido)
+    {
+        $user = auth()->user();
+
+        // ✅ Acceso:
+        // - admin: todo
+        // - tecnico: todo (puede exportar)
+        // - clinica: solo su clínica
+        // - otros: 403
+        $isAdmin   = $user->hasRole('admin');
+        $isTecnico = $user->hasRole('tecnico');
+        $isClinica = $user->hasRole('clinica');
+
+        if (! $isAdmin && ! $isTecnico) {
+            if ($isClinica) {
+                if ((int) $pedido->clinica_id !== (int) $user->clinica_id) {
+                    abort(403);
+                }
+            } else {
+                abort(403);
+            }
+        }
+
+        $pedido->load(['clinica', 'paciente']);
+
+        // Separar piezas para el PDF
+        $periapical = PedidoPieza::where('pedido_id', $pedido->id)
+            ->where('tipo', 'periapical')
+            ->pluck('pieza_codigo')
+            ->map(fn($v) => (string) $v)
+            ->all();
+
+        $tomografia = PedidoPieza::where('pedido_id', $pedido->id)
+            ->where('tipo', 'tomografia')
+            ->pluck('pieza_codigo')
+            ->map(fn($v) => (string) $v)
+            ->all();
+
+        $fotosSeleccionadas = PedidoFoto::where('pedido_id', $pedido->id)->pluck('tipo')->all();
+        $cefalometriasSeleccionadas = PedidoCefalometria::where('pedido_id', $pedido->id)->pluck('tipo')->all();
+
+        $pdf = Pdf::loadView('admin.pedidos.pdf', [
+            'pedido'                     => $pedido,
+            'periapical'                 => $periapical,
+            'tomografia'                 => $tomografia,
+            'fotosSeleccionadas'         => $fotosSeleccionadas,
+            'cefalometriasSeleccionadas' => $cefalometriasSeleccionadas,
+        ])->setPaper('a4');
+
+        $nombre = 'pedido-' . ($pedido->codigo_pedido ?? $pedido->id) . '.pdf';
+        Audit::log('pedidos', 'pdf', 'Pedido exportado a PDF', $pedido, [
+            'codigo_pedido' => $pedido->codigo_pedido ?? $pedido->id,
+        ]);
+
+        return $pdf->stream($nombre);
+    }
 
 
     // ... (Tus métodos auxiliares getCatalogos, booleanFields, generarCodigo se mantienen igual)
@@ -724,6 +779,17 @@ class PedidoController extends Controller
             'finalidad_perforacion_radicular',
             'finalidad_sospecha_fractura',
             'finalidad_patologia',
+        ];
+    }
+    private function snapshotRelaciones(Pedido $pedido): array
+    {
+        $pedido->loadMissing(['fotos', 'cefalometrias', 'piezas']);
+
+        return [
+            'fotos' => $pedido->fotos->pluck('tipo')->sort()->values()->all(),
+            'cefalometrias' => $pedido->cefalometrias->pluck('tipo')->sort()->values()->all(),
+            'periapical' => $pedido->piezas->where('tipo', 'periapical')->pluck('pieza_codigo')->sort()->values()->all(),
+            'tomografia' => $pedido->piezas->where('tipo', 'tomografia')->pluck('pieza_codigo')->sort()->values()->all(),
         ];
     }
 }

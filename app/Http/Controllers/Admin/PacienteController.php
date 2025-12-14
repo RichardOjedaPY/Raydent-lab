@@ -10,6 +10,7 @@ use Illuminate\Validation\Rule;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Pedido;
+use App\Support\Audit;
 
 
 
@@ -147,6 +148,7 @@ public function show(Paciente $paciente)
         ->orderByDesc('id')
         ->limit(20)
         ->get();
+        Audit::log('pacientes', 'view', 'Paciente visualizado', $paciente);
 
     return view('admin.pacientes.show', compact('paciente', 'consultas', 'pedidos'));
 }
@@ -199,7 +201,10 @@ public function update(Request $request, Paciente $paciente)
         $data['clinica_id'] = $user->clinica_id;
     }
 
-    $data['is_active'] = $data['is_active'] ?? false;
+    if (! array_key_exists('is_active', $data)) {
+        unset($data['is_active']);
+    }
+    
 
     if (! empty($data['fecha_nacimiento'])) {
         $data['edad'] = Carbon::parse($data['fecha_nacimiento'])->age;
@@ -213,24 +218,40 @@ public function update(Request $request, Paciente $paciente)
 }
 
 
-    public function destroy(Paciente $paciente)
-    {
-        // Desactivamos en lugar de borrar físico
-        $paciente->is_active = false;
-        $paciente->save();
+public function destroy(Paciente $paciente)
+{
+    $before = (bool) $paciente->is_active;
 
-        return redirect()
-            ->route('admin.pacientes.index')
-            ->with('success', 'Paciente desactivado correctamente.');
-    }
+    // Desactivamos en lugar de borrar físico
+    $paciente->is_active = false;
+    $paciente->save();
 
-    public function toggleStatus(Paciente $paciente)
-    {
-        $paciente->is_active = ! $paciente->is_active;
-        $paciente->save();
+    Audit::log('pacientes', 'disabled', 'Paciente desactivado', $paciente, [
+        'before_is_active' => $before,
+        'after_is_active'  => (bool) $paciente->is_active,
+    ]);
 
-        return redirect()
-            ->route('admin.pacientes.index')
-            ->with('success', 'Estado del paciente actualizado.');
-    }
+    return redirect()
+        ->route('admin.pacientes.index')
+        ->with('success', 'Paciente desactivado correctamente.');
+}
+
+
+public function toggleStatus(Paciente $paciente)
+{
+    $before = (bool) $paciente->is_active;
+
+    $paciente->is_active = ! $paciente->is_active;
+    $paciente->save();
+
+    Audit::log('pacientes', 'status_toggled', 'Estado del paciente actualizado', $paciente, [
+        'before_is_active' => $before,
+        'after_is_active'  => (bool) $paciente->is_active,
+    ]);
+
+    return redirect()
+        ->route('admin.pacientes.index')
+        ->with('success', 'Estado del paciente actualizado.');
+}
+
 }
