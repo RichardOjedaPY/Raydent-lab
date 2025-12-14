@@ -17,7 +17,7 @@
         .hdr {
             border: 1px solid #cbd5e1;
             padding: 6px 8px;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
         }
         .hdr-title { font-size: 13px; font-weight: 700; margin: 0; }
         .hdr-sub   { font-size: 10px; margin: 2px 0 0 0; color: #374151; }
@@ -25,26 +25,35 @@
         .hdr-right { text-align: right; font-size: 9px; color: #6b7280; }
         .hdr-right strong { color: #111827; }
 
-        /* Boxes */
+        /* Boxes - MÁS GRANDES */
         .box {
             border: 1px solid #cbd5e1;
-            padding: 3px;
+            padding: 4px;
         }
         .label {
-            margin-top: 3px;
+            margin-top: 4px;
             text-align: center;
             font-size: 9px;
             color: #374151;
+            font-weight: 500;
         }
 
-        /* Wrappers de imagen: recorte por overflow (DomPDF-friendly) */
-        .imgwrap-top    { height: 130px; overflow: hidden; border: 1px solid #e5e7eb; }
-        .imgwrap-occlus { height: 130px; overflow: hidden; border: 1px solid #e5e7eb; }
-        .imgwrap-bot    { height: 110px; overflow: hidden; border: 1px solid #e5e7eb; }
+        /* Wrappers de imagen - INCREMENTADOS para mejor visualización */
+        .imgwrap-top    { height: 160px; overflow: hidden; border: 1px solid #e5e7eb; }
+        .imgwrap-occlus-v { height: 180px; overflow: hidden; border: 1px solid #e5e7eb; } /* VERTICAL */
+        .imgwrap-bot    { height: 140px; overflow: hidden; border: 1px solid #e5e7eb; }
 
         .imgwrap-top img,
-        .imgwrap-occlus img,
-        .imgwrap-bot img { width: 100%; display: block; }
+        .imgwrap-bot img { 
+            width: 100%; 
+            display: block; 
+        }
+        
+        /* Oclusales en orientación natural (horizontal) */
+        .imgwrap-occlus-v img { 
+            width: 100%; 
+            display: block;
+        }
 
         .placeholder {
             display: flex; align-items: center; justify-content: center;
@@ -53,16 +62,16 @@
             border: 1px dashed #cbd5e1;
             font-size: 10px;
         }
-        .ph-top    { height: 130px; }
-        .ph-occlus { height: 130px; }
-        .ph-bot    { height: 110px; }
+        .ph-top    { height: 160px; }
+        .ph-occlus-v { height: 180px; }
+        .ph-bot    { height: 140px; }
 
-        /* Espacios mínimos */
+        /* Espacios */
         .p2 { padding: 2px; }
-        .mt4 { margin-top: 4px; }
+        .mt6 { margin-top: 6px; }
 
         .footer {
-            margin-top: 5px;
+            margin-top: 6px;
             font-size: 8.5px;
             color: #6b7280;
         }
@@ -76,7 +85,7 @@
     // helper: obtener foto por slot
     $fotoBySlot = fn(string $slot) => $pedido->fotosRealizadas->firstWhere('slot', $slot);
 
-    // helper: base64 para DomPDF (correcto con disco privado)
+    // helper: base64 para DomPDF
     $imgSrc = function ($foto) {
         if (!$foto) return null;
         try {
@@ -93,7 +102,7 @@
     $pacienteNombre = trim(($pedido->paciente->apellido ?? '').' '.($pedido->paciente->nombre ?? ''));
     $doctor = $pedido->doctor_nombre ?: '—';
 
-    // ✅ Fecha (sin hora)
+    // Fecha
     $fechaRaw = $pedido->fecha_solicitud
         ?: optional($pedido->created_at)->toDateString()
         ?: now()->toDateString();
@@ -104,7 +113,7 @@
         $fechaTxt = (string) $fechaRaw;
     }
 
-    // ✅ Edad: primero desde paciente->edad, si no desde fecha_nacimiento (sin decimales)
+    // Edad
     $edadTxt = '—';
     $pac = $pedido->paciente ?? null;
 
@@ -116,8 +125,8 @@
                 $ref   = Carbon::parse($fechaRaw);
                 $birth = Carbon::parse($pac->fecha_nacimiento);
 
-                $years  = $birth->diffInYears($ref); // int
-                $months = $birth->copy()->addYears($years)->diffInMonths($ref); // int
+                $years  = $birth->diffInYears($ref);
+                $months = $birth->copy()->addYears($years)->diffInMonths($ref);
 
                 $edadTxt = $months > 0 ? "{$years}a, {$months}m" : "{$years}a";
             } catch (\Throwable $e) {
@@ -126,7 +135,7 @@
         }
     }
 
-    // ✅ Sexo/Género: tu campo es "genero" (M/F/O)
+    // Sexo/Género
     $sexoTxt = '—';
     if ($pac) {
         $sexoTxt = match ($pac->genero ?? null) {
@@ -137,13 +146,13 @@
         };
     }
 
-    // Orden EXACTO del ejemplo
+    // Orden de fotos
     $top3 = ['fotografia_frontal','fotografia_perfil','fotografia_sonrisa'];
     $oclusales = ['oclusal_superior','oclusal_inferior'];
     $bottom3 = ['intraoral_derecho','intraoral_frontal','intraoral_izquierdo'];
 @endphp
 
-{{-- HEADER (sin flex, estable) --}}
+{{-- HEADER --}}
 <table class="hdr no-break">
     <tr>
         <td style="width:70%;">
@@ -160,11 +169,11 @@
     </tr>
 </table>
 
-{{-- LAYOUT PRINCIPAL --}}
+{{-- LAYOUT PRINCIPAL: 3 fotos faciales + 2 oclusales VERTICALES --}}
 <table class="no-break">
     <tr>
-        {{-- Izquierda: 3 fotos faciales --}}
-        <td style="width:72%;" class="p2">
+        {{-- Izquierda: 3 fotos faciales (70% del ancho) --}}
+        <td style="width:68%;" class="p2">
             <table>
                 <tr>
                     @foreach($top3 as $slot)
@@ -188,8 +197,8 @@
             </table>
         </td>
 
-        {{-- Derecha: 2 oclusales apiladas --}}
-        <td style="width:28%;" class="p2">
+        {{-- Derecha: 2 oclusales VERTICALES apiladas (32% del ancho) --}}
+        <td style="width:32%;" class="p2">
             <table>
                 @foreach($oclusales as $slot)
                     @php
@@ -201,9 +210,9 @@
                         <td class="p2">
                             <div class="box">
                                 @if($src)
-                                    <div class="imgwrap-occlus"><img src="{{ $src }}" alt="{{ $label }}"></div>
+                                    <div class="imgwrap-occlus-v"><img src="{{ $src }}" alt="{{ $label }}"></div>
                                 @else
-                                    <div class="placeholder ph-occlus">Sin imagen</div>
+                                    <div class="placeholder ph-occlus-v">Sin imagen</div>
                                 @endif
                                 <div class="label">{{ $label }}</div>
                             </div>
@@ -215,8 +224,8 @@
     </tr>
 </table>
 
-{{-- Fila inferior: 3 intraorales --}}
-<table class="no-break mt4">
+{{-- Fila inferior: 3 intraorales MÁS GRANDES --}}
+<table class="no-break mt6">
     <tr>
         @foreach($bottom3 as $slot)
             @php
