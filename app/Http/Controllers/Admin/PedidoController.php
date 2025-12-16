@@ -17,6 +17,8 @@ use App\Models\Consulta;
 use App\Models\User;
 use App\Support\Audit;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
+use App\Support\Sequence;
 
 
 
@@ -83,8 +85,9 @@ class PedidoController extends Controller
         $fotosSeleccionadas             = [];
         $cefalometriasSeleccionadas     = [];
         $piezasPeriapicalSeleccionadas  = [];
-        $piezasTomografiaSeleccionadas  = [];
-        $codigoPedidoSugerido = Pedido::generarCodigoPedido();
+        $piezasTomografiaSeleccionadas = [];
+        $codigoPedidoSugerido = Pedido::sugerirCodigoPedido();
+
         $modo = 'create';
 
         return view('admin.pedidos.index', compact(
@@ -155,7 +158,8 @@ class PedidoController extends Controller
         $piezasPeriapicalSeleccionadas  = [];
         $piezasTomografiaSeleccionadas  = [];
 
-        $codigoPedidoSugerido = Pedido::generarCodigoPedido();
+        $codigoPedidoSugerido = Pedido::sugerirCodigoPedido();
+
         $modo = 'create';
 
         return view('admin.pedidos.create', compact(
@@ -599,31 +603,31 @@ class PedidoController extends Controller
 
 
     public function destroy(Pedido $pedido)
-{
-    $user = auth()->user();
-    if (! $user->hasRole('admin') && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
-        abort(403);
+    {
+        $user = auth()->user();
+        if (! $user->hasRole('admin') && (int) $pedido->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
+
+        $snapshot = [
+            'pedido' => [
+                'id' => $pedido->id,
+                'codigo_pedido' => $pedido->codigo_pedido ?? null,
+                'clinica_id' => $pedido->clinica_id,
+                'paciente_id' => $pedido->paciente_id,
+                'estado' => $pedido->estado,
+            ],
+            'relaciones' => $this->snapshotRelaciones($pedido),
+        ];
+
+        Audit::log('pedidos', 'deleted', 'Pedido eliminado', $pedido, $snapshot);
+
+        $pedido->delete();
+
+        return redirect()
+            ->route('admin.pedidos.index')
+            ->with('success', 'Pedido eliminado.');
     }
-
-    $snapshot = [
-        'pedido' => [
-            'id' => $pedido->id,
-            'codigo_pedido' => $pedido->codigo_pedido ?? null,
-            'clinica_id' => $pedido->clinica_id,
-            'paciente_id' => $pedido->paciente_id,
-            'estado' => $pedido->estado,
-        ],
-        'relaciones' => $this->snapshotRelaciones($pedido),
-    ];
-
-    Audit::log('pedidos', 'deleted', 'Pedido eliminado', $pedido, $snapshot);
-
-    $pedido->delete();
-
-    return redirect()
-        ->route('admin.pedidos.index')
-        ->with('success', 'Pedido eliminado.');
-}
 
 
     public function pdf(Pedido $pedido)
@@ -684,14 +688,22 @@ class PedidoController extends Controller
     }
 
 
-    // ... (Tus métodos auxiliares getCatalogos, booleanFields, generarCodigo se mantienen igual)
-    // Solo asegúrate de NO incluir 'piezas_codigos' en ningún validate si no lo usas.
+
     protected function generarCodigo(): string
     {
         $year = now()->format('Y');
-        $seq = str_pad((string) (Pedido::whereYear('created_at', $year)->max('id') + 1), 6, '0', STR_PAD_LEFT);
-        return "RAY-{$year}-{$seq}";
+    
+        $n = Sequence::next("pedidos:RAY:{$year}", function () use ($year) {
+            return (int) DB::table('pedidos')
+                ->where('codigo', 'like', "RAY-{$year}-%")
+                ->selectRaw('MAX(CAST(SUBSTRING(codigo, 10) AS UNSIGNED)) as m')
+                ->value('m');
+        });
+    
+        return "RAY-{$year}-" . str_pad((string) $n, 6, '0', STR_PAD_LEFT);
     }
+    
+
 
     protected function getCatalogos(): array
     {

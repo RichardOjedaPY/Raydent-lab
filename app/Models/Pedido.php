@@ -5,7 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
-
+use Illuminate\Support\Facades\DB;
+use App\Support\Sequence;
 class Pedido extends Model
 {
     use HasFactory;
@@ -124,22 +125,38 @@ class Pedido extends Model
         });
     }
 
+    public static function sugerirCodigoPedido(): string
+    {
+        $ultimo = self::withoutGlobalScope('tenant_clinica')
+            ->where('codigo_pedido', 'like', 'RD-%')
+            ->orderByDesc('id')
+            ->value('codigo_pedido');
+    
+        $ultimoNumero = 0;
+    
+        if ($ultimo && preg_match('/RD-(\d+)/i', $ultimo, $m)) {
+            $ultimoNumero = (int) $m[1];
+        }
+    
+        $nuevo = $ultimoNumero + 1;
+    
+        return 'RD-' . str_pad((string) $nuevo, 9, '0', STR_PAD_LEFT);
+    }
+    
     public static function generarCodigoPedido(): string
     {
-        $ultimoPedido = self::where('codigo_pedido', 'like', 'RD-%')
-            ->orderByDesc('id')
-            ->first();
-
-        $ultimoNumero = 0;
-
-        if ($ultimoPedido && preg_match('/RD-(\d+)/i', $ultimoPedido->codigo_pedido, $matches)) {
-            $ultimoNumero = (int) $matches[1];
-        }
-
-        $nuevoNumero = $ultimoNumero + 1;
-
-        return 'RD-' . str_pad((string) $nuevoNumero, 9, '0', STR_PAD_LEFT);
+        $n = Sequence::next('pedidos:RD', function () {
+            // max numérico real existente (ignora scopes)
+            return (int) DB::table('pedidos')
+                ->where('codigo_pedido', 'like', 'RD-%')
+                ->selectRaw('MAX(CAST(SUBSTRING(codigo_pedido, 4) AS UNSIGNED)) as m')
+                ->value('m');
+        });
+    
+        return 'RD-' . str_pad((string) $n, 9, '0', STR_PAD_LEFT);
     }
+    
+
 
     // Relaciones
     public function clinica()
