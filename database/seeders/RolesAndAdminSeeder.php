@@ -39,9 +39,17 @@ class RolesAndAdminSeeder extends Seeder
             'tecnico_dashboard' => ['view'],
             'tecnico_pedidos'   => ['view', 'trabajar', 'estado', 'archivos', 'fotos'],
             'resultados'    => ['view', 'download', 'fotos_pdf'],
-            
+
             //   Módulo Tarifario:  
-            'tarifario'     => ['view', 'update'], 
+            'tarifario'     => ['view', 'update'],
+            //  Módulo Liquidaciones (Pedidos liquidados)
+            'liquidaciones' => ['view'],
+
+
+            //  Módulo Pagos (cobro individual / parcial)
+         
+            'pagos' => ['view', 'create', 'pdf'],
+
         ];
 
         $permisosCreados = [];
@@ -81,10 +89,19 @@ class RolesAndAdminSeeder extends Seeder
 
         // CLÍNICA: Sus permisos estándar
         $clinicaPerms = [
-            'pacientes.view', 'pacientes.create', 'pacientes.update',
-            'consultas.view', 'consultas.create', 'consultas.update',
-            'pedidos.view', 'pedidos.create', 'pedidos.update', 'pedidos.pdf',
-            'resultados.view', 'resultados.download', 'resultados.fotos_pdf',
+            'pacientes.view',
+            'pacientes.create',
+            'pacientes.update',
+            'consultas.view',
+            'consultas.create',
+            'consultas.update',
+            'pedidos.view',
+            'pedidos.create',
+            'pedidos.update',
+            'pedidos.pdf',
+            'resultados.view',
+            'resultados.download',
+            'resultados.fotos_pdf',
         ];
         $clinica->syncPermissions($clinicaPerms);
 

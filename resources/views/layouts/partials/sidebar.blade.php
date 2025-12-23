@@ -29,6 +29,26 @@
             request()->routeIs('admin.dashboard') ||
             request()->routeIs('admin.tecnico.dashboard') ||
             request()->routeIs('admin.clinica.dashboard');
+
+        // ✅ Flags/actives para menús agrupados
+        $tarifarioActive = request()->routeIs('admin.tarifario.*');
+        $cobrosActive    = request()->routeIs('admin.liquidaciones.*') || request()->routeIs('admin.pagos.*');
+
+        $showTarifario = $u
+            && $u->can('tarifario.view')
+            && (\Route::has('admin.tarifario.index') || \Route::has('admin.tarifario.clinica.index'));
+
+        $showCobros = $u
+            && (
+                $u->can('liquidaciones.view') ||
+                $u->can('pagos.view') ||
+                $u->can('pagos.create')
+            )
+            && (
+                \Route::has('admin.liquidaciones.pedidos_liquidados') ||
+                \Route::has('admin.pagos.index') ||
+                \Route::has('admin.pagos.show') // por si solo existe show/pdf por ahora
+            );
     @endphp
 
     {{-- Logo / marca --}}
@@ -68,6 +88,20 @@
                         <p>Dashboard</p>
                     </a>
                 </li>
+
+                {{-- =========================
+                    ADMINISTRACIÓN
+                ========================= --}}
+                @if(
+                    auth()->check() && (
+                        auth()->user()->can('activity_logs.view') ||
+                        auth()->user()->can('usuarios.view') ||
+                        auth()->user()->can('clinicas.view') ||
+                        auth()->user()->hasRole('admin')
+                    )
+                )
+                    <li class="nav-header text-uppercase" style="opacity:.75;">Administración</li>
+                @endif
 
                 {{-- Auditoría --}}
                 @can('activity_logs.view')
@@ -113,6 +147,21 @@
                     </li>
                 @endrole
 
+                {{-- =========================
+                    OPERACIÓN
+                ========================= --}}
+                @if(
+                    auth()->check() && (
+                        auth()->user()->can('pacientes.view') ||
+                        auth()->user()->can('consultas.view') ||
+                        auth()->user()->can('pedidos.view') ||
+                        auth()->user()->hasAnyRole(['tecnico','admin']) ||
+                        auth()->user()->can('tecnico.pedidos.view')
+                    )
+                )
+                    <li class="nav-header text-uppercase" style="opacity:.75;">Operación</li>
+                @endif
+
                 {{-- Pacientes --}}
                 @can('pacientes.view')
                     <li class="nav-item">
@@ -136,7 +185,6 @@
                 @endcan
 
                 {{-- Pedidos (se oculta para Técnico; técnico trabaja desde Panel Técnico) --}}
-                @php($u = auth()->user())
                 @if ($u && !$u->hasRole('tecnico'))
                     @can('pedidos.view')
                         <li class="nav-item">
@@ -163,30 +211,86 @@
                 @endif
 
                 {{-- =========================
-                     TARIFARIO (Precio base)
-                     Opción A: maestro global
-                     ========================= --}}
-                     @can('tarifario.view')
-                     <li class="nav-header text-uppercase" style="opacity:.75;">Gestión de Precios</li>
-                 
-                     {{-- Maestro Global --}}
-                     <li class="nav-item">
-                         <a href="{{ route('admin.tarifario.index') }}"
-                            class="nav-link {{ request()->routeIs('admin.tarifario.index') ? 'active' : '' }}">
-                             <i class="nav-icon fas fa-globe"></i>
-                             <p>Tarifario Maestro</p>
-                         </a>
-                     </li>
-                 
-                     {{-- Tarifario por Clínica --}}
-                     <li class="nav-item">
-                         <a href="{{ route('admin.tarifario.clinica.index') }}"
-                            class="nav-link {{ request()->routeIs('admin.tarifario.clinica*') ? 'active' : '' }}">
-                             <i class="nav-icon fas fa-clinic-medical"></i>
-                             <p>Precios por Clínica</p>
-                         </a>
-                     </li>  
-                 @endcan
+                    FINANZAS (Tarifario + Cobros)
+                ========================= --}}
+                @if($showTarifario || $showCobros)
+                    <li class="nav-header text-uppercase" style="opacity:.75;">Finanzas</li>
+
+                    {{-- ===== Tarifario ===== --}}
+                    @if($showTarifario)
+                        <li class="nav-item has-treeview {{ $tarifarioActive ? 'menu-open' : '' }}">
+                            <a href="#" class="nav-link {{ $tarifarioActive ? 'active' : '' }}">
+                                <i class="nav-icon fas fa-tags"></i>
+                                <p>
+                                    Tarifario
+                                    <i class="right fas fa-angle-left"></i>
+                                </p>
+                            </a>
+
+                            <ul class="nav nav-treeview">
+                                @if(\Route::has('admin.tarifario.index'))
+                                    <li class="nav-item">
+                                        <a href="{{ route('admin.tarifario.index') }}"
+                                           class="nav-link {{ request()->routeIs('admin.tarifario.index') ? 'active' : '' }}">
+                                            <i class="far fa-circle nav-icon"></i>
+                                            <p>Tarifario Maestro</p>
+                                        </a>
+                                    </li>
+                                @endif
+
+                                @if(\Route::has('admin.tarifario.clinica.index'))
+                                    <li class="nav-item">
+                                        <a href="{{ route('admin.tarifario.clinica.index') }}"
+                                           class="nav-link {{ request()->routeIs('admin.tarifario.clinica*') ? 'active' : '' }}">
+                                            <i class="far fa-circle nav-icon"></i>
+                                            <p>Precios por Clínica</p>
+                                        </a>
+                                    </li>
+                                @endif
+                            </ul>
+                        </li>
+                    @endif
+
+                    {{-- ===== Cobros ===== --}}
+                    @if($showCobros)
+                        <li class="nav-item has-treeview {{ $cobrosActive ? 'menu-open' : '' }}">
+                            <a href="#" class="nav-link {{ $cobrosActive ? 'active' : '' }}">
+                                <i class="nav-icon fas fa-file-invoice-dollar"></i>
+                                <p>
+                                    Cobros
+                                    <i class="right fas fa-angle-left"></i>
+                                </p>
+                            </a>
+
+                            <ul class="nav nav-treeview">
+                                @can('liquidaciones.view')
+                                    @if(\Route::has('admin.liquidaciones.pedidos_liquidados'))
+                                        <li class="nav-item">
+                                            <a href="{{ route('admin.liquidaciones.pedidos_liquidados') }}"
+                                               class="nav-link {{ request()->routeIs('admin.liquidaciones.pedidos_liquidados') ? 'active' : '' }}">
+                                                <i class="far fa-circle nav-icon"></i>
+                                                <p>Pedidos liquidados</p>
+                                            </a>
+                                        </li>
+                                    @endif
+                                @endcan
+
+                                {{-- Listado de pagos (si existe) --}}
+                                @can('pagos.view')
+                                    @if(\Route::has('admin.pagos.index'))
+                                        <li class="nav-item">
+                                            <a href="{{ route('admin.pagos.index') }}"
+                                               class="nav-link {{ request()->routeIs('admin.pagos.*') ? 'active' : '' }}">
+                                                <i class="far fa-circle nav-icon"></i>
+                                                <p>Pagos</p>
+                                            </a>
+                                        </li>
+                                    @endif
+                                @endcan
+                            </ul>
+                        </li>
+                    @endif
+                @endif
 
             </ul>
         </nav>

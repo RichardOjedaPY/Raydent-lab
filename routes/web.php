@@ -17,6 +17,12 @@ use App\Http\Controllers\Admin\Clinica\ClinicaDashboardController;
 use App\Http\Controllers\Admin\PedidoResultadoController;
 use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\TarifarioController;
+use App\Http\Controllers\Admin\PagoController;
+use App\Http\Controllers\Admin\LiquidacionController;
+
+
+
+
 
 Route::get('/', function () {
     return view('welcome');
@@ -163,11 +169,29 @@ Route::middleware(['auth'])
                 Route::post('pedidos/{pedido}/fotos', [TecnicoPedidoController::class, 'subirFotos'])
                     ->name('pedidos.fotos');
             });
+
+           /** 
+         * ============================
+         * PEDIDOS LIQUIDACION
+         * ============================
+         */
         Route::get('/admin/pedidos/{pedido}/liquidar', [PedidoLiquidacionController::class, 'edit'])
             ->name('pedidos.liquidar');
 
         Route::post('/admin/pedidos/{pedido}/liquidar', [PedidoLiquidacionController::class, 'update'])
             ->name('pedidos.liquidar.update');
+        Route::get('liquidaciones/pedidos-liquidados', [LiquidacionController::class, 'pedidosLiquidados'])
+            ->name('liquidaciones.pedidos_liquidados');
+
+        Route::post('liquidaciones/{liquidacion}/pago-individual', [PagoController::class, 'storePagoIndividual'])
+            ->name('liquidaciones.pago_individual.store');
+
+        Route::get('pagos/{pago}', [PagoController::class, 'show'])
+            ->name('pagos.show');
+
+        Route::get('pagos/{pago}/pdf', [PagoController::class, 'pdfRecibo'])
+            ->name('pagos.pdf');
+
 
         /**
          * ============================

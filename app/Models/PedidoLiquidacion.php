@@ -34,4 +34,14 @@ class PedidoLiquidacion extends Model
     {
         return $this->hasMany(PedidoLiquidacionItem::class, 'liquidacion_id');
     }
+
+    public function aplicaciones()
+    {
+        return $this->hasMany(\App\Models\PagoAplicacion::class, 'liquidacion_id');
+    }
+
+    public function clinica()
+    {
+        return $this->belongsTo(\App\Models\Clinica::class);
+    }
 }
