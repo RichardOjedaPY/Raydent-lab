@@ -554,21 +554,25 @@ class PedidoController extends Controller
             ]);
         }
     }
+
+
     public function show(Pedido $pedido)
     {
         $user = auth()->user();
 
         // ✅ Reglas de acceso:
         // - admin: puede ver todo
-        // - tecnico: puede ver todo (necesita ver lo solicitado por la clínica)
+        // - tecnico: puede ver todo
+        // - cajero: puede ver todo (necesita ver detalle para cobros/liquidaciones)
         // - clinica: solo puede ver pedidos de su propia clínica
         // - otros: 403
         $isAdmin   = $user->hasRole('admin');
         $isTecnico = $user->hasRole('tecnico');
+        $isCajero  = $user->hasRole('cajero');
         $isClinica = $user->hasRole('clinica');
 
-        if (! $isAdmin && ! $isTecnico) {
-            // si no es admin ni técnico, aplicamos restricción por clínica
+        // 🔒 Si NO es admin/tecnico/cajero, recién ahí restringimos por clínica
+        if (! $isAdmin && ! $isTecnico && ! $isCajero) {
             if ($isClinica) {
                 if ((int) $pedido->clinica_id !== (int) $user->clinica_id) {
                     abort(403);
@@ -584,8 +588,8 @@ class PedidoController extends Controller
             'fotos',
             'cefalometrias',
             'piezas',
-            'archivos',         // ✅ archivos subidos por técnico
-            'fotosRealizadas',  // ✅ fotos subidas por técnico
+            'archivos',
+            'fotosRealizadas',
             'tecnico',
         ]);
 
@@ -598,6 +602,7 @@ class PedidoController extends Controller
             'documentaciones'
         ));
     }
+
 
 
 
@@ -630,79 +635,85 @@ class PedidoController extends Controller
     }
 
 
-    public function pdf(Pedido $pedido)
-    {
-        $user = auth()->user();
+   // app/Http/Controllers/Admin/PedidoController.php
 
-        // ✅ Acceso:
-        // - admin: todo
-        // - tecnico: todo (puede exportar)
-        // - clinica: solo su clínica
-        // - otros: 403
-        $isAdmin   = $user->hasRole('admin');
-        $isTecnico = $user->hasRole('tecnico');
-        $isClinica = $user->hasRole('clinica');
+public function pdf(Pedido $pedido)
+{
+    $user = auth()->user();
 
-        if (! $isAdmin && ! $isTecnico) {
-            if ($isClinica) {
-                if ((int) $pedido->clinica_id !== (int) $user->clinica_id) {
-                    abort(403);
-                }
-            } else {
+    // ✅ Acceso:
+    // - admin: todo
+    // - tecnico: todo
+    // - cajero: todo (necesita exportar para comprobantes/gestión)
+    // - clinica: solo su clínica
+    // - otros: 403
+    $isAdmin   = $user->hasRole('admin');
+    $isTecnico = $user->hasRole('tecnico');
+    $isCajero  = $user->hasRole('cajero');
+    $isClinica = $user->hasRole('clinica');
+
+    if (! $isAdmin && ! $isTecnico && ! $isCajero) {
+        if ($isClinica) {
+            if ((int) $pedido->clinica_id !== (int) $user->clinica_id) {
                 abort(403);
             }
+        } else {
+            abort(403);
         }
-
-        $pedido->load(['clinica', 'paciente']);
-
-        // Separar piezas para el PDF
-        $periapical = PedidoPieza::where('pedido_id', $pedido->id)
-            ->where('tipo', 'periapical')
-            ->pluck('pieza_codigo')
-            ->map(fn($v) => (string) $v)
-            ->all();
-
-        $tomografia = PedidoPieza::where('pedido_id', $pedido->id)
-            ->where('tipo', 'tomografia')
-            ->pluck('pieza_codigo')
-            ->map(fn($v) => (string) $v)
-            ->all();
-
-        $fotosSeleccionadas = PedidoFoto::where('pedido_id', $pedido->id)->pluck('tipo')->all();
-        $cefalometriasSeleccionadas = PedidoCefalometria::where('pedido_id', $pedido->id)->pluck('tipo')->all();
-
-        $pdf = Pdf::loadView('admin.pedidos.pdf', [
-            'pedido'                     => $pedido,
-            'periapical'                 => $periapical,
-            'tomografia'                 => $tomografia,
-            'fotosSeleccionadas'         => $fotosSeleccionadas,
-            'cefalometriasSeleccionadas' => $cefalometriasSeleccionadas,
-        ])->setPaper('a4');
-
-        $nombre = 'pedido-' . ($pedido->codigo_pedido ?? $pedido->id) . '.pdf';
-        Audit::log('pedidos', 'pdf', 'Pedido exportado a PDF', $pedido, [
-            'codigo_pedido' => $pedido->codigo_pedido ?? $pedido->id,
-        ]);
-
-        return $pdf->stream($nombre);
     }
+
+    $pedido->load(['clinica', 'paciente']);
+
+    // Separar piezas para el PDF
+    $periapical = PedidoPieza::where('pedido_id', $pedido->id)
+        ->where('tipo', 'periapical')
+        ->pluck('pieza_codigo')
+        ->map(fn($v) => (string) $v)
+        ->all();
+
+    $tomografia = PedidoPieza::where('pedido_id', $pedido->id)
+        ->where('tipo', 'tomografia')
+        ->pluck('pieza_codigo')
+        ->map(fn($v) => (string) $v)
+        ->all();
+
+    $fotosSeleccionadas = PedidoFoto::where('pedido_id', $pedido->id)->pluck('tipo')->all();
+    $cefalometriasSeleccionadas = PedidoCefalometria::where('pedido_id', $pedido->id)->pluck('tipo')->all();
+
+    $pdf = Pdf::loadView('admin.pedidos.pdf', [
+        'pedido'                     => $pedido,
+        'periapical'                 => $periapical,
+        'tomografia'                 => $tomografia,
+        'fotosSeleccionadas'         => $fotosSeleccionadas,
+        'cefalometriasSeleccionadas' => $cefalometriasSeleccionadas,
+    ])->setPaper('a4');
+
+    $nombre = 'pedido-' . ($pedido->codigo_pedido ?? $pedido->id) . '.pdf';
+
+    Audit::log('pedidos', 'pdf', 'Pedido exportado a PDF', $pedido, [
+        'codigo_pedido' => $pedido->codigo_pedido ?? $pedido->id,
+    ]);
+
+    return $pdf->stream($nombre);
+}
+
 
 
 
     protected function generarCodigo(): string
     {
         $year = now()->format('Y');
-    
+
         $n = Sequence::next("pedidos:RAY:{$year}", function () use ($year) {
             return (int) DB::table('pedidos')
                 ->where('codigo', 'like', "RAY-{$year}-%")
                 ->selectRaw('MAX(CAST(SUBSTRING(codigo, 10) AS UNSIGNED)) as m')
                 ->value('m');
         });
-    
+
         return "RAY-{$year}-" . str_pad((string) $n, 6, '0', STR_PAD_LEFT);
     }
-    
+
 
 
     protected function getCatalogos(): array

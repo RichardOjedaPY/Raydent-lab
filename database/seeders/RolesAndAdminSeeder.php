@@ -12,10 +12,15 @@ class RolesAndAdminSeeder extends Seeder
 {
     public function run(): void
     {
-        // ✅ Limpia cache de permisos/roles
+        /**
+         * ✅ 0) Limpiar cache de Spatie (crítico cuando creás/actualizás permisos y roles)
+         */
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
-        // 1) Normalizar roles
+        /**
+         * ✅ 1) Normalizar roles (si en algún momento existió "cliente", lo renombramos a "clinica")
+         * - Esto evita tener dos roles diferentes para lo mismo.
+         */
         $cliente = Role::where('name', 'cliente')->first();
         if ($cliente) {
             $cliente->name = 'clinica';
@@ -23,89 +28,153 @@ class RolesAndAdminSeeder extends Seeder
             $cliente->save();
         }
 
+        /**
+         * ✅ 2) Asegurar que existan los roles base
+         */
         $admin   = Role::firstOrCreate(['name' => 'admin',   'guard_name' => 'web']);
         $tecnico = Role::firstOrCreate(['name' => 'tecnico', 'guard_name' => 'web']);
         $clinica = Role::firstOrCreate(['name' => 'clinica', 'guard_name' => 'web']);
+        $cajero  = Role::firstOrCreate(['name' => 'cajero',  'guard_name' => 'web']);
 
-        // 2) Definición de Permisos
+        /**
+         * ✅ 3) Definición de permisos por módulo
+         *
+         * IMPORTANTE:
+         * - Tu pantalla "Mapa de permisos por rol" muestra una columna "Show".
+         * - Si el permiso *.show NO existe, esa columna aparece como "—".
+         * - Además, para poder entrar a /admin/pedidos/{id}, necesitás "pedidos.show"
+         *   (no alcanza solo con "pedidos.view").
+         */
         $permisosPorModulo = [
-            'usuarios'      => ['view', 'create', 'update', 'delete'],
-            'clinicas'      => ['view', 'create', 'update', 'delete'],
-            'pacientes'     => ['view', 'create', 'update', 'delete'],
-            'consultas'     => ['view', 'create', 'update', 'delete'],
-            'pedidos'       => ['view', 'create', 'update', 'delete', 'pdf'],
+            // CRUDs
+            'usuarios'      => ['view', 'show', 'create', 'update', 'delete'],
+            'clinicas'      => ['view', 'show', 'create', 'update', 'delete'],
+            'pacientes'     => ['view', 'show', 'create', 'update', 'delete'],
+            'consultas'     => ['view', 'show', 'create', 'update', 'delete'],
+
+            // Pedidos
+            'pedidos'       => ['view', 'show', 'create', 'update', 'delete', 'pdf', 'liquidar'],
+
+            // Seguridad / auditoría
             'permissions'   => ['view', 'update'],
             'activity_logs' => ['view', 'show'],
+
+            // Técnico
             'tecnico_dashboard' => ['view'],
-            'tecnico_pedidos'   => ['view', 'trabajar', 'estado', 'archivos', 'fotos'],
+            'tecnico_pedidos'   => ['view', 'show', 'trabajar', 'estado', 'archivos', 'fotos'],
+
+            // Resultados
             'resultados'    => ['view', 'download', 'fotos_pdf'],
 
-            //   Módulo Tarifario:  
+            // Precios
             'tarifario'     => ['view', 'update'],
-            //  Módulo Liquidaciones (Pedidos liquidados)
-            'liquidaciones' => ['view'],
 
+            // Cobros / liquidaciones
+            'liquidaciones' => ['view', 'show'],
 
-            //  Módulo Pagos (cobro individual / parcial)
-         
-            'pagos' => ['view', 'create', 'pdf'],
-
+            // Pagos
+            'pagos'         => ['view', 'show', 'create', 'pdf'],
         ];
 
+        /**
+         * ✅ 4) Crear permisos si no existen
+         */
         $permisosCreados = [];
+
         foreach ($permisosPorModulo as $modulo => $acciones) {
             foreach ($acciones as $accion) {
                 $name = "{$modulo}.{$accion}";
+
                 $perm = Permission::firstOrCreate([
                     'name'       => $name,
                     'guard_name' => 'web',
                 ]);
+
                 $permisosCreados[] = $perm->name;
             }
         }
 
-        // 3) Asignación de Permisos por Rol
+        /**
+         * ✅ 5) Asignación de permisos por rol
+         */
 
-        // ADMIN: Tiene TODO (incluyendo tarifario.view y tarifario.update)
+        // 5.1 ADMIN: tiene todo
         $admin->syncPermissions($permisosCreados);
 
-        // TÉCNICO: Por ahora no suele ver precios, pero si quisieras, añadirías 'tarifario.view' aquí.
+        // 5.2 TÉCNICO: trabaja pedidos desde su panel y puede ver pedido + pdf (según tu flujo)
         $tecnicoPerms = [
             'tecnico_dashboard.view',
             'tecnico_pedidos.view',
+            'tecnico_pedidos.show',
             'tecnico_pedidos.trabajar',
             'tecnico_pedidos.estado',
             'tecnico_pedidos.archivos',
             'tecnico_pedidos.fotos',
+
             'resultados.view',
             'resultados.download',
             'resultados.fotos_pdf',
+
+            // lectura base
             'pacientes.view',
             'consultas.view',
             'pedidos.view',
+            'pedidos.show',
             'pedidos.pdf',
         ];
         $tecnico->syncPermissions($tecnicoPerms);
 
-        // CLÍNICA: Sus permisos estándar
+        // 5.3 CLÍNICA: puede gestionar lo propio (según tu sistema)
         $clinicaPerms = [
             'pacientes.view',
+            'pacientes.show',
             'pacientes.create',
             'pacientes.update',
             'consultas.view',
+            'consultas.show',
             'consultas.create',
             'consultas.update',
             'pedidos.view',
+            'pedidos.show',
             'pedidos.create',
             'pedidos.update',
             'pedidos.pdf',
+
             'resultados.view',
             'resultados.download',
             'resultados.fotos_pdf',
         ];
         $clinica->syncPermissions($clinicaPerms);
 
-        // 4) Usuario Inicial
+        // 5.4 CAJERO: cobra (pagos) y necesita ver pedido (show) para revisar antes de cobrar / imprimir
+        $cajeroPerms = [
+            // Cobros
+            'liquidaciones.view',
+            'liquidaciones.show',
+
+            // Pagos
+            'pagos.view',
+            'pagos.show',
+            'pagos.create',
+            'pagos.pdf',
+
+            // Referencia / navegación
+            'pedidos.view',
+            'pedidos.show',
+            'pedidos.pdf',
+            // ✅ Permiso SOLO para liquidar/cargar precios (sin editar pedido)
+            'pedidos.liquidar',
+
+            // Opcional (si querés que filtre por clínica o vea datos)
+            // 'clinicas.view',
+            // 'clinicas.show',
+        ];
+        $cajero->syncPermissions($cajeroPerms);
+
+        /**
+         * ✅ 6) Usuario inicial: el primer usuario queda como admin activo
+         * (si ya tenés admin creado y no querés tocarlo, podés comentar este bloque)
+         */
         $user = User::orderBy('id')->first();
         if ($user) {
             $user->syncRoles([$admin->name]);
@@ -113,6 +182,9 @@ class RolesAndAdminSeeder extends Seeder
             $user->save();
         }
 
+        /**
+         * ✅ 7) Limpiar cache nuevamente al final (recomendado)
+         */
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

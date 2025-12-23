@@ -17,21 +17,21 @@ use App\Models\TarifarioClinicaPrecio;
 class PedidoLiquidacionController extends Controller
 {
     public function __construct()
-    {
-        // Por ahora usamos permisos existentes. Luego, cuando exista "cajero", afinamos permisos.
-        $this->middleware('permission:pedidos.update')->only(['edit', 'update']);
-    }
+{
+    /**
+     * ✅ Este flujo NO es "editar pedido".
+     * Es "liquidar / cargar precios", con permiso separado.
+     */
+    $this->middleware('permission:pedidos.liquidar')->only(['edit', 'update']);
+}
 
     public function edit(Pedido $pedido)
     {
         $user = auth()->user();
 
-        $isAdmin   = $user->hasRole('admin');
-        $isTecnico = $user->hasRole('tecnico');
-
-        if (! $isAdmin && ! $isTecnico) {
-            abort(403);
-        }
+    if (! $user || ! $user->can('pedidos.liquidar')) {
+        abort(403);
+    }
 
         $pedido->load(['clinica', 'paciente', 'fotos', 'cefalometrias', 'piezas', 'liquidacion.items']);
 
@@ -103,12 +103,9 @@ class PedidoLiquidacionController extends Controller
     {
         $user = auth()->user();
 
-        $isAdmin   = $user->hasRole('admin');
-        $isTecnico = $user->hasRole('tecnico');
-
-        if (! $isAdmin && ! $isTecnico) {
-            abort(403);
-        }
+    if (! $user || ! $user->can('pedidos.liquidar')) {
+        abort(403);
+    }
 
         $pedido->load(['clinica', 'paciente', 'liquidacion.items']);
 

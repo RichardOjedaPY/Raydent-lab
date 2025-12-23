@@ -170,16 +170,17 @@ Route::middleware(['auth'])
                     ->name('pedidos.fotos');
             });
 
-           /** 
+        /** 
          * ============================
          * PEDIDOS LIQUIDACION
          * ============================
          */
-        Route::get('/admin/pedidos/{pedido}/liquidar', [PedidoLiquidacionController::class, 'edit'])
+        Route::get('pedidos/{pedido}/liquidar', [PedidoLiquidacionController::class, 'edit'])
             ->name('pedidos.liquidar');
 
-        Route::post('/admin/pedidos/{pedido}/liquidar', [PedidoLiquidacionController::class, 'update'])
+        Route::post('pedidos/{pedido}/liquidar', [PedidoLiquidacionController::class, 'update'])
             ->name('pedidos.liquidar.update');
+
         Route::get('liquidaciones/pedidos-liquidados', [LiquidacionController::class, 'pedidosLiquidados'])
             ->name('liquidaciones.pedidos_liquidados');
 
@@ -191,6 +192,7 @@ Route::middleware(['auth'])
 
         Route::get('pagos/{pago}/pdf', [PagoController::class, 'pdfRecibo'])
             ->name('pagos.pdf');
+
 
 
         /**

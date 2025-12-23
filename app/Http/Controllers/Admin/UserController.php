@@ -46,9 +46,10 @@ class UserController extends Controller
     public function create()
     {
         $user      = new User();
-        $roles     = Role::whereIn('name', ['admin', 'tecnico', 'clinica'])
-            ->orderBy('name')
-            ->get();
+        $roles = Role::whereIn('name', ['admin', 'tecnico', 'clinica', 'cajero'])
+        ->orderBy('name')
+        ->get();
+    
         $clinicas  = Clinica::where('is_active', true)
             ->orderBy('nombre')
             ->get();
@@ -59,9 +60,10 @@ class UserController extends Controller
     public function edit(User $usuario)
     {
         $user      = $usuario;
-        $roles     = Role::whereIn('name', ['admin', 'tecnico', 'clinica'])
-            ->orderBy('name')
-            ->get();
+        $roles = Role::whereIn('name', ['admin', 'tecnico', 'clinica', 'cajero'])
+        ->orderBy('name')
+        ->get();
+    
         $clinicas  = Clinica::where('is_active', true)
             ->orderBy('nombre')
             ->get();

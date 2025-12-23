@@ -180,26 +180,30 @@
 
                 <div class="mt-2 mt-md-0">
                     @php($u = auth()->user())
-                    @if($u && !$u->hasRole('tecnico'))
+                    @if ($u && !$u->hasRole('tecnico'))
                         <a href="{{ route('admin.pedidos.index') }}" class="btn btn-sm btn-secondary">
                             <i class="fas fa-arrow-left"></i> Volver
                         </a>
                     @endif
-                    
 
+
+                    {{-- ✅ Editar pedido: SOLO con permiso pedidos.update --}}
                     @can('pedidos.update')
-                    @if(auth()->user()->hasRole('admin') || ($pedido->estado === 'pendiente'))
-                        <a href="{{ route('admin.pedidos.edit', $pedido) }}" class="btn btn-sm btn-warning">
-                            <i class="fas fa-edit"></i> Editar
+                        @if (auth()->user()->hasRole('admin') || $pedido->estado === 'pendiente')
+                            <a href="{{ route('admin.pedidos.edit', $pedido) }}" class="btn btn-sm btn-warning">
+                                <i class="fas fa-edit"></i> Editar
+                            </a>
+                        @endif
+                    @endcan
+
+                    {{-- ✅ Liquidar / cargar precios: permiso separado pedidos.liquidar --}}
+                    @can('pedidos.liquidar')
+                        <a href="{{ route('admin.pedidos.liquidar', $pedido) }}" class="btn btn-primary">
+                            Liquidar / Cargar precios
                         </a>
-                    @endif
-                @endcan
-                @can('pedidos.update')
-                <a href="{{ route('admin.pedidos.liquidar', $pedido) }}" class="btn btn-primary">
-                    Liquidar / Cargar precios
-                </a>
-            @endcan
-            
+                    @endcan
+
+
 
                     @can('pedidos.view')
                         @if (\Illuminate\Support\Facades\Route::has('admin.pedidos.pdf'))
