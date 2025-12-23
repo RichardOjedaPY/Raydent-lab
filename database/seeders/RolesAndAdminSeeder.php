@@ -4,7 +4,6 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use App\Models\User;
-
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
@@ -13,15 +12,10 @@ class RolesAndAdminSeeder extends Seeder
 {
     public function run(): void
     {
-        // ✅ Limpia cache de permisos/roles (Spatie)
+        // ✅ Limpia cache de permisos/roles
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
-        /*
-        |--------------------------------------------------------------------------
-        | 1) Normalizar roles
-        |--------------------------------------------------------------------------
-        | Si existía "cliente", lo convertimos en "clinica"
-        */
+        // 1) Normalizar roles
         $cliente = Role::where('name', 'cliente')->first();
         if ($cliente) {
             $cliente->name = 'clinica';
@@ -33,46 +27,24 @@ class RolesAndAdminSeeder extends Seeder
         $tecnico = Role::firstOrCreate(['name' => 'tecnico', 'guard_name' => 'web']);
         $clinica = Role::firstOrCreate(['name' => 'clinica', 'guard_name' => 'web']);
 
-        /*
-        |--------------------------------------------------------------------------
-        | 2) Crear permisos por módulo y acción (escalable)
-        |--------------------------------------------------------------------------
-        | Convención: modulo.accion
-        |
-        | Módulos nuevos:
-        | - tecnico_dashboard.*
-        | - tecnico_pedidos.*
-        | - resultados.*
-        | - dashboards (si querés separar admin/tecnico, ya lo cubrimos con tecnico_dashboard.view)
-        */
+        // 2) Definición de Permisos
         $permisosPorModulo = [
-            // Core admin
-            'usuarios'     => ['view', 'create', 'update', 'delete'],
-            'clinicas'     => ['view', 'create', 'update', 'delete'],
-            'pacientes'    => ['view', 'create', 'update', 'delete'],
-            'consultas'    => ['view', 'create', 'update', 'delete'],
-            'pedidos'      => ['view', 'create', 'update', 'delete', 'pdf'],
-        
-            // Seguridad / permisos
-            'permissions'  => ['view', 'update'],
-        
-            // Auditoría / Activity Logs
+            'usuarios'      => ['view', 'create', 'update', 'delete'],
+            'clinicas'      => ['view', 'create', 'update', 'delete'],
+            'pacientes'     => ['view', 'create', 'update', 'delete'],
+            'consultas'     => ['view', 'create', 'update', 'delete'],
+            'pedidos'       => ['view', 'create', 'update', 'delete', 'pdf'],
+            'permissions'   => ['view', 'update'],
             'activity_logs' => ['view', 'show'],
-        
-            // Técnico (módulos nuevos)
             'tecnico_dashboard' => ['view'],
             'tecnico_pedidos'   => ['view', 'trabajar', 'estado', 'archivos', 'fotos'],
-        
-            // Resultados (módulos nuevos)
-            'resultados' => ['view', 'download', 'fotos_pdf'],
-        
-            // ✅ Tarifario (nuevo)
-            'tarifario' => ['view', 'update'],
+            'resultados'    => ['view', 'download', 'fotos_pdf'],
+            
+            //   Módulo Tarifario:  
+            'tarifario'     => ['view', 'update'], 
         ];
-        
 
         $permisosCreados = [];
-
         foreach ($permisosPorModulo as $modulo => $acciones) {
             foreach ($acciones as $accion) {
                 $name = "{$modulo}.{$accion}";
@@ -84,31 +56,22 @@ class RolesAndAdminSeeder extends Seeder
             }
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | 3) Asignar permisos por defecto por rol
-        |--------------------------------------------------------------------------
-        */
+        // 3) Asignación de Permisos por Rol
 
-        // ADMIN: todo
+        // ADMIN: Tiene TODO (incluyendo tarifario.view y tarifario.update)
         $admin->syncPermissions($permisosCreados);
 
-        // TÉCNICO: panel técnico + resultados + (solo lectura de pacientes/consultas/pedidos)
+        // TÉCNICO: Por ahora no suele ver precios, pero si quisieras, añadirías 'tarifario.view' aquí.
         $tecnicoPerms = [
-            // Dashboard técnico + Panel técnico
             'tecnico_dashboard.view',
             'tecnico_pedidos.view',
             'tecnico_pedidos.trabajar',
             'tecnico_pedidos.estado',
             'tecnico_pedidos.archivos',
             'tecnico_pedidos.fotos',
-
-            // Resultados (ver/descargar/pdf)
             'resultados.view',
             'resultados.download',
             'resultados.fotos_pdf',
-
-            // Lectura de datos base
             'pacientes.view',
             'consultas.view',
             'pedidos.view',
@@ -116,36 +79,16 @@ class RolesAndAdminSeeder extends Seeder
         ];
         $tecnico->syncPermissions($tecnicoPerms);
 
-        // CLÍNICA: gestiona sus pacientes/consultas/pedidos + ver/descargar resultados
+        // CLÍNICA: Sus permisos estándar
         $clinicaPerms = [
-            // Pacientes
-            'pacientes.view',
-            'pacientes.create',
-            'pacientes.update',
-
-            // Consultas
-            'consultas.view',
-            'consultas.create',
-            'consultas.update',
-
-            // Pedidos
-            'pedidos.view',
-            'pedidos.create',
-            'pedidos.update',
-            'pedidos.pdf',
-
-            // Resultados (ver/descargar/pdf)
-            'resultados.view',
-            'resultados.download',
-            'resultados.fotos_pdf',
+            'pacientes.view', 'pacientes.create', 'pacientes.update',
+            'consultas.view', 'consultas.create', 'consultas.update',
+            'pedidos.view', 'pedidos.create', 'pedidos.update', 'pedidos.pdf',
+            'resultados.view', 'resultados.download', 'resultados.fotos_pdf',
         ];
         $clinica->syncPermissions($clinicaPerms);
 
-        /*
-        |--------------------------------------------------------------------------
-        | 4) Primer usuario = admin
-        |--------------------------------------------------------------------------
-        */
+        // 4) Usuario Inicial
         $user = User::orderBy('id')->first();
         if ($user) {
             $user->syncRoles([$admin->name]);
@@ -153,7 +96,6 @@ class RolesAndAdminSeeder extends Seeder
             $user->save();
         }
 
-        // Limpia cache otra vez por seguridad
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

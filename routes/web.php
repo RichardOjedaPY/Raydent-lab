@@ -189,6 +189,9 @@ Route::middleware(['auth'])
         Route::post('tarifario/clinica/{clinica}', [TarifarioController::class, 'clinicaUpdate'])
             ->name('tarifario.clinica.update')
             ->middleware('permission:tarifario.update');
+        Route::get('tarifario/clinica', [TarifarioController::class, 'clinicaIndex'])
+            ->name('tarifario.clinica.index')
+            ->middleware('permission:tarifario.view');
     });
 
 require __DIR__ . '/auth.php';

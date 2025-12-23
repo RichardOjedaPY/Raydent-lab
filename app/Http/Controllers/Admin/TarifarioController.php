@@ -127,4 +127,16 @@ class TarifarioController extends Controller
         $digits = preg_replace('/\D+/', '', $s);
         return (int) ($digits ?: 0);
     }
+    public function clinicaIndex()
+{
+    // Buscamos la primera clínica para mostrar sus precios
+    $clinica = \App\Models\Clinica::where('is_active', true)->first();
+    
+    if (!$clinica) {
+        return redirect()->route('admin.tarifario.index')
+            ->with('error', 'No hay clínicas activas para configurar.');
+    }
+
+    return redirect()->route('admin.tarifario.clinica', $clinica->id);
+}
 }

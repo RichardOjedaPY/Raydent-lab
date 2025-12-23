@@ -166,26 +166,27 @@
                      TARIFARIO (Precio base)
                      Opción A: maestro global
                      ========================= --}}
-                @role('admin')
-                    <li class="nav-header text-uppercase" style="opacity:.75;">Tarifario</li>
-
-                    <li class="nav-item">
-                        <a href="{{ route('admin.tarifario.index') }}"
-                           class="nav-link {{ request()->routeIs('admin.tarifario.*') ? 'active' : '' }}">
-                            <i class="nav-icon fas fa-tags"></i>
-                            <p>Tarifario (Precio base)</p>
-                        </a>
-                    </li>
-
-                    {{-- (Opcional a futuro) Si implementamos sobrescritura por clínica --}}
-                    {{-- <li class="nav-item">
-                        <a href="{{ route('admin.tarifario-clinica.index') }}"
-                           class="nav-link {{ request()->routeIs('admin.tarifario-clinica.*') ? 'active' : '' }}">
-                            <i class="nav-icon fas fa-clinic-medical"></i>
-                            <p>Tarifario por clínica</p>
-                        </a>
-                    </li> --}}
-                @endrole
+                     @can('tarifario.view')
+                     <li class="nav-header text-uppercase" style="opacity:.75;">Gestión de Precios</li>
+                 
+                     {{-- Maestro Global --}}
+                     <li class="nav-item">
+                         <a href="{{ route('admin.tarifario.index') }}"
+                            class="nav-link {{ request()->routeIs('admin.tarifario.index') ? 'active' : '' }}">
+                             <i class="nav-icon fas fa-globe"></i>
+                             <p>Tarifario Maestro</p>
+                         </a>
+                     </li>
+                 
+                     {{-- Tarifario por Clínica --}}
+                     <li class="nav-item">
+                         <a href="{{ route('admin.tarifario.clinica.index') }}"
+                            class="nav-link {{ request()->routeIs('admin.tarifario.clinica*') ? 'active' : '' }}">
+                             <i class="nav-icon fas fa-clinic-medical"></i>
+                             <p>Precios por Clínica</p>
+                         </a>
+                     </li>  
+                 @endcan
 
             </ul>
         </nav>
