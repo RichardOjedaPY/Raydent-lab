@@ -3,7 +3,7 @@
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
-
+use App\Http\Controllers\Admin\PedidoLiquidacionController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\ClinicaController;
@@ -16,7 +16,7 @@ use App\Http\Controllers\Admin\Tecnico\TecnicoDashboardController;
 use App\Http\Controllers\Admin\Clinica\ClinicaDashboardController;
 use App\Http\Controllers\Admin\PedidoResultadoController;
 use App\Http\Controllers\Admin\ActivityLogController;
-
+use App\Http\Controllers\Admin\TarifarioController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -63,10 +63,10 @@ Route::middleware(['auth'])
     ->name('admin.')
     ->group(function () {
         Route::get('activity-logs', [ActivityLogController::class, 'index'])
-        ->name('activity-logs.index');
+            ->name('activity-logs.index');
 
-    Route::get('activity-logs/{activity}', [ActivityLogController::class, 'show'])
-        ->name('activity-logs.show');
+        Route::get('activity-logs/{activity}', [ActivityLogController::class, 'show'])
+            ->name('activity-logs.show');
         /**
          * ============================
          * ADMIN (solo admin)
@@ -163,6 +163,32 @@ Route::middleware(['auth'])
                 Route::post('pedidos/{pedido}/fotos', [TecnicoPedidoController::class, 'subirFotos'])
                     ->name('pedidos.fotos');
             });
+        Route::get('/admin/pedidos/{pedido}/liquidar', [PedidoLiquidacionController::class, 'edit'])
+            ->name('pedidos.liquidar');
+
+        Route::post('/admin/pedidos/{pedido}/liquidar', [PedidoLiquidacionController::class, 'update'])
+            ->name('pedidos.liquidar.update');
+
+        /**
+         * ============================
+         * tarifas
+         * ============================
+         */
+        Route::get('tarifario', [TarifarioController::class, 'index'])
+            ->name('tarifario.index')
+            ->middleware('permission:tarifario.view');
+
+        Route::post('tarifario', [TarifarioController::class, 'update'])
+            ->name('tarifario.update')
+            ->middleware('permission:tarifario.update');
+
+        Route::get('tarifario/clinica/{clinica}', [TarifarioController::class, 'clinica'])
+            ->name('tarifario.clinica')
+            ->middleware('permission:tarifario.view');
+
+        Route::post('tarifario/clinica/{clinica}', [TarifarioController::class, 'clinicaUpdate'])
+            ->name('tarifario.clinica.update')
+            ->middleware('permission:tarifario.update');
     });
 
 require __DIR__ . '/auth.php';

@@ -194,7 +194,12 @@
                         </a>
                     @endif
                 @endcan
-                
+                @can('pedidos.update')
+                <a href="{{ route('admin.pedidos.liquidar', $pedido) }}" class="btn btn-primary">
+                    Liquidar / Cargar precios
+                </a>
+            @endcan
+            
 
                     @can('pedidos.view')
                         @if (\Illuminate\Support\Facades\Route::has('admin.pedidos.pdf'))

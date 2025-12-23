@@ -65,6 +65,9 @@ class RolesAndAdminSeeder extends Seeder
         
             // Resultados (módulos nuevos)
             'resultados' => ['view', 'download', 'fotos_pdf'],
+        
+            // ✅ Tarifario (nuevo)
+            'tarifario' => ['view', 'update'],
         ];
         
 

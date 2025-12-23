@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use App\Support\Sequence;
+
 class Pedido extends Model
 {
     use HasFactory;
@@ -131,18 +132,18 @@ class Pedido extends Model
             ->where('codigo_pedido', 'like', 'RD-%')
             ->orderByDesc('id')
             ->value('codigo_pedido');
-    
+
         $ultimoNumero = 0;
-    
+
         if ($ultimo && preg_match('/RD-(\d+)/i', $ultimo, $m)) {
             $ultimoNumero = (int) $m[1];
         }
-    
+
         $nuevo = $ultimoNumero + 1;
-    
+
         return 'RD-' . str_pad((string) $nuevo, 9, '0', STR_PAD_LEFT);
     }
-    
+
     public static function generarCodigoPedido(): string
     {
         $n = Sequence::next('pedidos:RD', function () {
@@ -152,10 +153,10 @@ class Pedido extends Model
                 ->selectRaw('MAX(CAST(SUBSTRING(codigo_pedido, 4) AS UNSIGNED)) as m')
                 ->value('m');
         });
-    
+
         return 'RD-' . str_pad((string) $n, 9, '0', STR_PAD_LEFT);
     }
-    
+
 
 
     // Relaciones
@@ -207,5 +208,9 @@ class Pedido extends Model
     public function fotosRealizadas()
     {
         return $this->hasMany(PedidoFotoRealizada::class);
+    }
+    public function liquidacion()
+    {
+        return $this->hasOne(\App\Models\PedidoLiquidacion::class, 'pedido_id');
     }
 }
