@@ -128,6 +128,7 @@
                     Cobrar
                 </button>
               @endif
+              
             </td>
           </tr>
         @empty

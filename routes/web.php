@@ -19,7 +19,7 @@ use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\TarifarioController;
 use App\Http\Controllers\Admin\PagoController;
 use App\Http\Controllers\Admin\LiquidacionController;
-
+use App\Http\Controllers\Admin\EstadoCuentaController;
 
 
 
@@ -186,6 +186,17 @@ Route::middleware(['auth'])
 
         Route::post('liquidaciones/{liquidacion}/pago-individual', [PagoController::class, 'storePagoIndividual'])
             ->name('liquidaciones.pago_individual.store');
+        /**
+         * ============================
+         * PAGOS / COBROS (MULTIPLE)
+         * ============================
+         */
+        Route::get('pagos/multiple', [PagoController::class, 'createMultiple'])
+            ->name('pagos.multiple.create');
+
+        Route::post('pagos/multiple', [PagoController::class, 'storeMultiple'])
+            ->name('pagos.multiple.store');
+
 
         Route::get('pagos/{pago}', [PagoController::class, 'show'])
             ->name('pagos.show');
@@ -193,6 +204,9 @@ Route::middleware(['auth'])
         Route::get('pagos/{pago}/pdf', [PagoController::class, 'pdfRecibo'])
             ->name('pagos.pdf');
 
+        // Eliminar pago
+        Route::delete('pagos/{pago}', [PagoController::class, 'destroy'])
+            ->name('pagos.destroy');
 
 
         /**
@@ -218,6 +232,12 @@ Route::middleware(['auth'])
         Route::get('tarifario/clinica', [TarifarioController::class, 'clinicaIndex'])
             ->name('tarifario.clinica.index')
             ->middleware('permission:tarifario.view');
+
+
+
+        Route::get('estado-cuenta', [EstadoCuentaController::class, 'index'])
+            ->name('estado_cuenta.index')
+            ->middleware('permission:estado_cuenta.view');
     });
 
 require __DIR__ . '/auth.php';

@@ -73,7 +73,10 @@ class RolesAndAdminSeeder extends Seeder
             'liquidaciones' => ['view', 'show'],
 
             // Pagos
-            'pagos'         => ['view', 'show', 'create', 'pdf'],
+            'pagos'         => ['view', 'show', 'create', 'pdf', 'delete'],
+            // Estado de cuenta
+            'estado_cuenta' => ['view'],
+
         ];
 
         /**
@@ -164,10 +167,10 @@ class RolesAndAdminSeeder extends Seeder
             'pedidos.pdf',
             // ✅ Permiso SOLO para liquidar/cargar precios (sin editar pedido)
             'pedidos.liquidar',
+            'estado_cuenta.view',
+            'pagos.delete',
+            
 
-            // Opcional (si querés que filtre por clínica o vea datos)
-            // 'clinicas.view',
-            // 'clinicas.show',
         ];
         $cajero->syncPermissions($cajeroPerms);
 

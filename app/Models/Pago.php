@@ -35,5 +35,5 @@ class Pago extends Model
         return $this->hasMany(PagoAplicacion::class);
     }
 
-  
+ 
 }
