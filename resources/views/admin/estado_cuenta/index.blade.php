@@ -6,9 +6,63 @@
 @section('content')
 @php
   $fmt = fn($n) => number_format((int)$n, 0, ',', '.');
+
+  // Base query (sin paginación) para conservar filtros siempre
+  $qBase = request()->except('page');
+
+  // URLs de tabs (✅ usar array_merge para reemplazar tab)
+  $urlPendientes = route('admin.estado_cuenta.index', array_merge($qBase, ['tab' => 'pendientes']));
+  $urlPagados    = route('admin.estado_cuenta.index', array_merge($qBase, ['tab' => 'pagados']));
+  $urlPagos      = route('admin.estado_cuenta.index', array_merge($qBase, ['tab' => 'pagos']));
+
+  // Botón superior "Ver pagos"
+  $verPagosUrlTop = $urlPagos;
 @endphp
 
-<div class="card mb-3">
+<style>
+  .kpi-card{
+    border: 1px solid rgba(148,163,184,.35);
+    border-radius: .85rem;
+    background: #fff;
+    box-shadow: 0 10px 25px rgba(15,23,42,.06);
+  }
+  .kpi-card .label{ font-size:.78rem; color:#6b7280; }
+  .kpi-card .value{ font-size:1.35rem; font-weight:800; margin: .15rem 0 0; letter-spacing:.2px; }
+  .kpi-card .unit{ font-size:.85rem; color:#6b7280; font-weight:600; margin-left:.25rem; }
+
+  .card-soft{
+    border: 1px solid rgba(148,163,184,.35);
+    border-radius: .85rem;
+    background: #fff;
+    box-shadow: 0 10px 25px rgba(15,23,42,.06);
+  }
+  .filters .form-control{ border-radius: .65rem; }
+  .btn-round{ border-radius: .65rem; }
+  .nav-pills .nav-link{
+    border-radius: .65rem;
+    font-weight: 600;
+    padding: .45rem .85rem;
+  }
+
+  .table thead th{
+    font-size: .85rem;
+    color: #111827;
+    background: #f8fafc;
+    border-bottom: 1px solid rgba(148,163,184,.35);
+  }
+  .table td{
+    vertical-align: middle;
+  }
+  .money{
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+  }
+  .muted{ color:#6b7280; }
+  .actions .btn{ margin-left: .35rem; }
+</style>
+
+{{-- FILTROS --}}
+<div class="card card-soft mb-3 filters">
   <div class="card-body">
     <form method="get" class="row g-2 align-items-end">
       <div class="col-md-5">
@@ -33,74 +87,73 @@
 
       <div class="col-md-3 d-flex gap-2">
         <input type="hidden" name="tab" value="{{ $tab }}">
-        <button class="btn btn-primary w-100">
-          <i class="fas fa-search"></i> Filtrar
+        <button class="btn btn-primary btn-round w-100">
+          <i class="fas fa-search mr-1"></i> Filtrar
         </button>
-        <a class="btn btn-secondary" href="{{ route('admin.estado_cuenta.index') }}">
+        <a class="btn btn-secondary btn-round" href="{{ route('admin.estado_cuenta.index') }}">
           Limpiar
         </a>
+      </div>
+
+      {{-- Botón superior Ver pagos (mantiene filtros) --}}
+      <div class="col-12 d-flex justify-content-end mt-2">
+        @canany(['pagos.view','pagos.show'])
+          <a href="{{ $verPagosUrlTop }}" class="btn btn-outline-primary btn-round">
+            <i class="fas fa-receipt mr-1"></i> Ver pagos
+          </a>
+        @endcanany
       </div>
     </form>
   </div>
 </div>
 
-{{-- Resumen --}}
-<div class="row">
+{{-- KPI / RESUMEN --}}
+<div class="row g-3">
   <div class="col-md-3">
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <div class="small text-muted">Total liquidado</div>
-        <div class="h4 mb-0">{{ $fmt($totalLiquidado) }} <small class="text-muted">Gs</small></div>
-      </div>
+    <div class="kpi-card p-3">
+      <div class="label">Total liquidado</div>
+      <div class="value">{{ $fmt($totalLiquidado) }}<span class="unit">Gs</span></div>
     </div>
   </div>
 
   <div class="col-md-3">
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <div class="small text-muted">Total pagado</div>
-        <div class="h4 mb-0">{{ $fmt($totalPagado) }} <small class="text-muted">Gs</small></div>
-      </div>
+    <div class="kpi-card p-3">
+      <div class="label">Total pagado</div>
+      <div class="value">{{ $fmt($totalPagado) }}<span class="unit">Gs</span></div>
     </div>
   </div>
 
   <div class="col-md-3">
-    <div class="card shadow-sm border-danger">
-      <div class="card-body">
-        <div class="small text-muted">Saldo pendiente</div>
-        <div class="h4 mb-0 text-danger">{{ $fmt($saldoPendiente) }} <small class="text-muted">Gs</small></div>
-      </div>
+    <div class="kpi-card p-3" style="border-color: rgba(239,68,68,.35);">
+      <div class="label">Saldo pendiente</div>
+      <div class="value text-danger">{{ $fmt($saldoPendiente) }}<span class="unit">Gs</span></div>
     </div>
   </div>
 
   <div class="col-md-3">
-    <div class="card shadow-sm border-success">
-      <div class="card-body">
-        <div class="small text-muted">Pagos a cuenta</div>
-        <div class="h4 mb-0 text-success">{{ $fmt($pagosACuenta) }} <small class="text-muted">Gs</small></div>
-      </div>
+    <div class="kpi-card p-3" style="border-color: rgba(34,197,94,.35);">
+      <div class="label">Pagos a cuenta</div>
+      <div class="value text-success">{{ $fmt($pagosACuenta) }}<span class="unit">Gs</span></div>
     </div>
   </div>
 </div>
 
-<div class="card mt-3">
-  <div class="card-header">
+{{-- TABS + TABLAS --}}
+<div class="card card-soft mt-3">
+  <div class="card-header bg-white">
     <ul class="nav nav-pills card-header-pills">
       <li class="nav-item">
-        <a class="nav-link {{ $tab==='pendientes' ? 'active' : '' }}"
-           href="{{ route('admin.estado_cuenta.index', request()->except('page') + ['tab'=>'pendientes']) }}">
+        <a class="nav-link {{ $tab==='pendientes' ? 'active' : '' }}" href="{{ $urlPendientes }}">
           Pendientes
         </a>
       </li>
       <li class="nav-item">
-        <a class="nav-link {{ $tab==='pagados' ? 'active' : '' }}"
-           href="{{ route('admin.estado_cuenta.index', request()->except('page') + ['tab'=>'pagados']) }}">
+        <a class="nav-link {{ $tab==='pagados' ? 'active' : '' }}" href="{{ $urlPagados }}">
           Pagados
         </a>
       </li>
       <li class="nav-item">
-        <a class="nav-link {{ $tab==='pagos' ? 'active' : '' }}"
-           href="{{ route('admin.estado_cuenta.index', request()->except('page') + ['tab'=>'pagos']) }}">
+        <a class="nav-link {{ $tab==='pagos' ? 'active' : '' }}" href="{{ $urlPagos }}">
           Pagos
         </a>
       </li>
@@ -109,41 +162,42 @@
 
   <div class="card-body p-0">
     @if($tab === 'pagos')
+      {{-- TAB PAGOS --}}
       <div class="table-responsive">
         <table class="table table-hover mb-0">
           <thead>
             <tr>
-              <th>#</th>
+              <th style="width:90px;">#</th>
               <th>Fecha</th>
               <th class="text-right">Total</th>
               <th class="text-right">Aplicado</th>
               <th class="text-right">Saldo a favor</th>
-              <th class="text-right" style="width: 180px;"></th>
+              <th class="text-right" style="width: 220px;">Acciones</th>
             </tr>
           </thead>
           <tbody>
             @forelse($pagos as $p)
               <tr>
-                <td>{{ $p->id }}</td>
-                <td>{{ optional($p->created_at)->format('d/m/Y H:i') }}</td>
-                <td class="text-right">{{ $fmt($p->total_gs) }}</td>
-                <td class="text-right">{{ $fmt($p->aplicado_gs) }}</td>
-                <td class="text-right {{ (int)$p->saldo_a_favor_gs > 0 ? 'text-success' : 'text-muted' }}">
+                <td class="fw-bold">#{{ $p->id }}</td>
+                <td class="muted">{{ optional($p->created_at)->format('d/m/Y H:i') }}</td>
+                <td class="text-right money">{{ $fmt($p->total_gs) }}</td>
+                <td class="text-right money">{{ $fmt($p->aplicado_gs) }}</td>
+                <td class="text-right money {{ (int)$p->saldo_a_favor_gs > 0 ? 'text-success' : 'muted' }}">
                   {{ $fmt($p->saldo_a_favor_gs) }}
                 </td>
-                <td class="text-right">
+                <td class="text-right actions">
                   @can('pagos.show')
-                    <a class="btn btn-sm btn-outline-primary"
+                    <a class="btn btn-sm btn-outline-primary btn-round"
                        href="{{ route('admin.pagos.show', $p) }}">
-                      Ver
+                      <i class="fas fa-eye mr-1"></i> Ver
                     </a>
                   @endcan
 
                   @can('pagos.pdf')
-                    <a class="btn btn-sm btn-outline-secondary"
+                    <a class="btn btn-sm btn-outline-secondary btn-round"
                        target="_blank"
                        href="{{ route('admin.pagos.pdf', $p) }}">
-                      PDF
+                      <i class="fas fa-file-pdf mr-1"></i> PDF
                     </a>
                   @endcan
                 </td>
@@ -159,43 +213,63 @@
         {{ $pagos->links() }}
       </div>
     @else
+      {{-- TAB PENDIENTES / PAGADOS --}}
       <div class="table-responsive">
         <table class="table table-hover mb-0">
           <thead>
             <tr>
-              <th>Liquidación</th>
+              <th style="width:120px;">Liquidación</th>
               <th>Pedido</th>
-              <th>Fecha</th>
+              <th style="width:170px;">Fecha</th>
               <th class="text-right">Total</th>
               <th class="text-right">Pagado</th>
               <th class="text-right">Saldo</th>
-              <th class="text-right" style="width: 180px;"></th>
+              <th class="text-right" style="width: 320px;">Acciones</th>
             </tr>
           </thead>
           <tbody>
             @forelse($liquidaciones as $l)
+              @php
+                // URL "Ver pagos" debe ir al TAB pagos conservando filtros,
+                // y opcionalmente enviamos liquidacion_id para que el controlador pueda filtrar pagos
+                $verPagosPorFila = route('admin.estado_cuenta.index', array_merge($qBase, [
+                  'tab' => 'pagos',
+                  'liquidacion_id' => $l->id,
+                ]));
+              @endphp
               <tr>
-                <td>#{{ $l->id }}</td>
+                <td class="fw-bold">#{{ $l->id }}</td>
                 <td>
                   @can('pedidos.show')
-                    <a href="{{ route('admin.pedidos.show', $l->pedido_id) }}">Pedido #{{ $l->pedido_id }}</a>
+                    <a href="{{ route('admin.pedidos.show', $l->pedido_id) }}" class="fw-semibold">
+                      Pedido #{{ $l->pedido_id }}
+                    </a>
                   @else
-                    Pedido #{{ $l->pedido_id }}
+                    <span class="fw-semibold">Pedido #{{ $l->pedido_id }}</span>
                   @endcan
                 </td>
-                <td>{{ optional($l->liquidado_at)->format('d/m/Y H:i') }}</td>
-                <td class="text-right">{{ $fmt($l->total_gs) }}</td>
-                <td class="text-right">{{ $fmt($l->aplicado_gs) }}</td>
-                <td class="text-right {{ (int)$l->saldo_gs > 0 ? 'text-danger' : 'text-success' }}">
+                <td class="muted">{{ optional($l->liquidado_at)->format('d/m/Y H:i') }}</td>
+                <td class="text-right money">{{ $fmt($l->total_gs) }}</td>
+                <td class="text-right money">{{ $fmt($l->aplicado_gs) }}</td>
+                <td class="text-right money {{ (int)$l->saldo_gs > 0 ? 'text-danger' : 'text-success' }}">
                   {{ $fmt($l->saldo_gs) }}
                 </td>
-                <td class="text-right">
+
+                <td class="text-right actions">
                   @can('pedidos.liquidar')
-                    <a class="btn btn-sm btn-outline-secondary"
+                    <a class="btn btn-sm btn-outline-secondary btn-round"
                        href="{{ route('admin.pedidos.liquidar', $l->pedido_id) }}">
-                      Ver liquidación
+                      <i class="fas fa-file-invoice mr-1"></i> Ver liquidación
                     </a>
                   @endcan
+
+                  {{-- ✅ Ver pagos (al lado) --}}
+                  @canany(['pagos.view','pagos.show'])
+                    <a class="btn btn-sm btn-outline-primary btn-round"
+                       href="{{ $verPagosPorFila }}">
+                      <i class="fas fa-receipt mr-1"></i> Ver pagos
+                    </a>
+                  @endcanany
                 </td>
               </tr>
             @empty
@@ -212,4 +286,3 @@
   </div>
 </div>
 @endsection
-    

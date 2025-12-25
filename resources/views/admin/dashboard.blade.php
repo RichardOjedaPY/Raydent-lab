@@ -10,7 +10,7 @@
         <div class="col-lg-3 col-6">
             <div class="small-box bg-info">
                 <div class="inner">
-                    <h3>{{ number_format($totalPedidos, 0, ',', '.') }}</h3>
+                    <h3>{{ number_format($totalPedidos ?? 0, 0, ',', '.') }}</h3>
                     <p>Pedidos (total)</p>
                 </div>
                 <div class="icon"><i class="fas fa-clipboard-list"></i></div>
@@ -20,7 +20,7 @@
         <div class="col-lg-3 col-6">
             <div class="small-box bg-success">
                 <div class="inner">
-                    <h3>{{ number_format($pedidosHoy, 0, ',', '.') }}</h3>
+                    <h3>{{ number_format($pedidosHoy ?? 0, 0, ',', '.') }}</h3>
                     <p>Pedidos hoy</p>
                 </div>
                 <div class="icon"><i class="fas fa-calendar-day"></i></div>
@@ -30,7 +30,7 @@
         <div class="col-lg-3 col-6">
             <div class="small-box bg-warning">
                 <div class="inner">
-                    <h3>{{ number_format($pedidosSemana, 0, ',', '.') }}</h3>
+                    <h3>{{ number_format($pedidosSemana ?? 0, 0, ',', '.') }}</h3>
                     <p>Últimos 7 días</p>
                 </div>
                 <div class="icon"><i class="fas fa-calendar-week"></i></div>
@@ -40,7 +40,7 @@
         <div class="col-lg-3 col-6">
             <div class="small-box bg-primary">
                 <div class="inner">
-                    <h3>{{ number_format($pedidosMes, 0, ',', '.') }}</h3>
+                    <h3>{{ number_format($pedidosMes ?? 0, 0, ',', '.') }}</h3>
                     <p>Últimos 30 días</p>
                 </div>
                 <div class="icon"><i class="fas fa-chart-line"></i></div>
@@ -50,10 +50,41 @@
         <div class="col-lg-3 col-6">
             <div class="small-box bg-secondary">
                 <div class="inner">
-                    <h3>{{ number_format($totalPacientes, 0, ',', '.') }}</h3>
+                    <h3>{{ number_format($totalPacientes ?? 0, 0, ',', '.') }}</h3>
                     <p>Pacientes</p>
                 </div>
                 <div class="icon"><i class="fas fa-user-injured"></i></div>
+            </div>
+        </div>
+
+        {{-- NUEVO: Pagos / Pendientes --}}
+        <div class="col-lg-3 col-6">
+            <div class="small-box bg-success">
+                <div class="inner">
+                    <h3>{{ number_format($pagadoHoy ?? 0, 0, ',', '.') }}</h3>
+                    <p>Pagado hoy</p>
+                </div>
+                <div class="icon"><i class="fas fa-cash-register"></i></div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-6">
+            <div class="small-box bg-primary">
+                <div class="inner">
+                    <h3>{{ number_format($pagadoMes ?? 0, 0, ',', '.') }}</h3>
+                    <p>Pagado mes</p>
+                </div>
+                <div class="icon"><i class="fas fa-calendar-alt"></i></div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-6">
+            <div class="small-box bg-warning">
+                <div class="inner">
+                    <h3>{{ number_format($pendientePagoTotal ?? 0, 0, ',', '.') }}</h3>
+                    <p>Pendiente de pago</p>
+                </div>
+                <div class="icon"><i class="fas fa-exclamation-circle"></i></div>
             </div>
         </div>
 
@@ -102,6 +133,31 @@
                 </div>
                 <div class="card-body">
                     <canvas id="chartEstados" height="180"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- NUEVO: Gráficos de pagos --}}
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card card-outline card-success">
+                <div class="card-header">
+                    <h3 class="card-title">Pagos (últimos 14 días)</h3>
+                </div>
+                <div class="card-body">
+                    <canvas id="chartPagosPorDia" height="90"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card card-outline card-primary">
+                <div class="card-header">
+                    <h3 class="card-title">Pagos por mes (últimos 12)</h3>
+                </div>
+                <div class="card-body">
+                    <canvas id="chartPagosPorMes" height="180"></canvas>
                 </div>
             </div>
         </div>
@@ -204,8 +260,8 @@
     <script>
         (function () {
             // Pedidos por día (línea)
-            const labelsDia = @json($pedidosPorDiaLabels);
-            const dataDia   = @json($pedidosPorDiaData);
+            const labelsDia = @json($pedidosPorDiaLabels ?? []);
+            const dataDia   = @json($pedidosPorDiaData ?? []);
 
             const ctx1 = document.getElementById('chartPedidosPorDia');
             if (ctx1) {
@@ -231,8 +287,8 @@
             }
 
             // Estados (dona)
-            const labelsEstado = @json($estadoLabels);
-            const dataEstado   = @json($estadoData);
+            const labelsEstado = @json($estadoLabels ?? []);
+            const dataEstado   = @json($estadoData ?? []);
 
             const ctx2 = document.getElementById('chartEstados');
             if (ctx2) {
@@ -248,6 +304,59 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            }
+
+            // Pagos por día (línea)
+            const labelsPagosDia = @json($pagosPorDiaLabels ?? []);
+            const dataPagosDia   = @json($pagosPorDiaData ?? []);
+
+            const ctx3 = document.getElementById('chartPagosPorDia');
+            if (ctx3) {
+                new Chart(ctx3, {
+                    type: 'line',
+                    data: {
+                        labels: labelsPagosDia,
+                        datasets: [{
+                            label: 'Pagado',
+                            data: dataPagosDia,
+                            tension: 0.35
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: true } },
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+            }
+
+            // Pagos por mes (barras)
+            const labelsPagosMes = @json($pagosPorMesLabels ?? []);
+            const dataPagosMes   = @json($pagosPorMesData ?? []);
+
+            const ctx4 = document.getElementById('chartPagosPorMes');
+            if (ctx4) {
+                new Chart(ctx4, {
+                    type: 'bar',
+                    data: {
+                        labels: labelsPagosMes,
+                        datasets: [{
+                            label: 'Pagado',
+                            data: dataPagosMes
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: true } },
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
                     }
                 });
             }

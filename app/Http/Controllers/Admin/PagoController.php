@@ -73,14 +73,21 @@ class PagoController extends Controller
             $aplicarGs = min($montoGs, $saldoGs);
 
             if ($aplicarGs > 0) {
+                // 1) Crear aplicación (UNA sola vez)
                 PagoAplicacion::create([
                     'pago_id'        => $pago->id,
                     'liquidacion_id' => $liquidacion->id,
                     'monto_gs'       => $aplicarGs,
                 ]);
+
+                // 2) Mantener pagado_gs sincronizado
+                $liquidacion->pagado_gs = (int) ($liquidacion->pagado_gs ?? 0) + (int) $aplicarGs;
+                $liquidacion->save();
             }
 
             // ✅ si sobra, queda como “pago a cuenta” (sin aplicación)
+            // (No hagas nada aquí)
+
 
             return redirect()
                 ->route('admin.pagos.show', $pago)
@@ -91,19 +98,64 @@ class PagoController extends Controller
 
 
     public function show(Pago $pago)
-    {
-        $pago->load([
-            'clinica',
-            'user',
-            'aplicaciones.liquidacion.pedido.paciente',
-            'aplicaciones.liquidacion.pedido.clinica',
-        ]);
+{
+    $pago->load([
+        'clinica',
+        'user',
+        'aplicaciones.liquidacion.pedido.paciente',
+        'aplicaciones.liquidacion.pedido.clinica',
+    ]);
 
-        $aplicadoGs = (int) $pago->aplicaciones->sum('monto_gs');
-        $aCuentaGs  = max(0, (int)$pago->monto_gs - $aplicadoGs);
+    // Contexto: liquidación principal (en tu caso "ver pago" viene desde una liquidación/pedido)
+    $liqId = $pago->aplicaciones->pluck('liquidacion_id')->filter()->first();
 
-        return view('admin.pagos.show', compact('pago', 'aplicadoGs', 'aCuentaGs'));
+    $pagosRelacionados = collect([$pago]);
+    $liq = null;
+    $pedido = null;
+
+    if ($liqId) {
+        $liq = PedidoLiquidacion::query()
+            ->with(['pedido.clinica', 'pedido.paciente'])
+            ->find($liqId);
+
+        $pedido = $liq?->pedido;
+
+        // Historial: todos los pagos que tengan aplicaciones para esta liquidación
+        $pagosRelacionados = Pago::query()
+            ->whereHas('aplicaciones', function ($q) use ($liqId) {
+                $q->where('liquidacion_id', $liqId);
+            })
+            ->with([
+                'clinica',
+                'user',
+                // Solo las aplicaciones de esta liquidación (para que el show sea "historial por pedido")
+                'aplicaciones' => function ($q) use ($liqId) {
+                    $q->where('liquidacion_id', $liqId)
+                      ->with(['liquidacion.pedido']);
+                },
+            ])
+            // sum aplicado por pago (solo de esta liquidación)
+            ->withSum(['aplicaciones as aplicado_gs_sum' => function ($q) use ($liqId) {
+                $q->where('liquidacion_id', $liqId);
+            }], 'monto_gs')
+            ->orderByDesc('id')
+            ->get();
     }
+
+    // Estos ya los estabas usando
+    $aplicadoGs = (int) $pago->aplicaciones->sum('monto_gs');
+    $aCuentaGs  = max(0, (int)$pago->monto_gs - $aplicadoGs);
+
+    return view('admin.pagos.show', compact(
+        'pago',
+        'aplicadoGs',
+        'aCuentaGs',
+        'pagosRelacionados',
+        'liq',
+        'pedido'
+    ));
+}
+
 
     public function pdfRecibo(Pago $pago)
     {
@@ -144,7 +196,7 @@ class PagoController extends Controller
 
         // Query base: liquidaciones confirmadas con pedido + clinica + paciente
         $q = PedidoLiquidacion::query()
-            ->with(['pedido.clinica', 'pedido.paciente'])
+            ->with(['pedido.clinica', 'pedido.paciente','aplicaciones.pago.user'])
             ->where('estado', 'confirmada')
             // saldo > 0
             ->whereRaw('GREATEST(0, (total_gs - pagado_gs)) > 0');
