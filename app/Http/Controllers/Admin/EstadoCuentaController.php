@@ -7,6 +7,7 @@ use App\Models\Clinica;
 use App\Models\PedidoLiquidacion;
 use App\Models\Pago;
 use App\Models\PagoAplicacion;
+use App\Support\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -182,7 +183,6 @@ class EstadoCuentaController extends Controller
             ->leftJoinSub($aplicadoPorPago, 'ap2', function ($j) {
                 $j->on('ap2.pago_id', '=', 'p.id');
             })
-            // ✅ Filtro por clínica (si corresponde)
             ->when($clinicaId > 0, function ($q) use ($clinicaId, $paTable, $paPagoFk, $paLiqFk, $liqTable) {
                 $q->whereExists(function ($w) use ($clinicaId, $paTable, $paPagoFk, $paLiqFk, $liqTable) {
                     $w->select(DB::raw(1))
@@ -192,7 +192,6 @@ class EstadoCuentaController extends Controller
                         ->where('pl.clinica_id', $clinicaId);
                 });
             })
-            // ✅ Drill-down: si viene liquidacion_id, mostrar solo pagos aplicados a esa liquidación
             ->when($liquidacionId > 0, function ($q) use ($liquidacionId, $paTable, $paPagoFk, $paLiqFk) {
                 $q->whereExists(function ($w) use ($liquidacionId, $paTable, $paPagoFk, $paLiqFk) {
                     $w->select(DB::raw(1))
@@ -216,6 +215,35 @@ class EstadoCuentaController extends Controller
             DB::raw("GREATEST(0, (p.{$pagoTotalCol} - COALESCE(ap2.aplicado_gs,0)))")
         );
 
+        // 🧾 AUDIT: vio estado de cuenta (con filtros/roles/totales)
+        Audit::log('estado_cuenta', 'view', 'Vio estado de cuenta', null, [
+            'rol_admin'   => (bool) $isAdmin,
+            'rol_cajero'  => (bool) $isCajero,
+            'rol_clinica' => (bool) $isClinica,
+
+            'clinica_id'         => (int) $clinicaId, // 0 = todas
+            'can_choose_clinica' => (bool) $canChooseClinica,
+
+            'desde' => $desde ?: null,
+            'hasta' => $hasta ?: null,
+            'tab'   => $tab ?: null,
+
+            'liquidacion_id' => (int) $liquidacionId,
+
+            'total_liquidado_gs' => (int) $totalLiquidado,
+            'total_pagado_gs'    => (int) $totalPagado,
+            'saldo_pendiente_gs' => (int) $saldoPendiente,
+            'pagos_a_cuenta_gs'  => (int) $pagosACuenta,
+
+            'liquidaciones_page'      => (int) $liquidaciones->currentPage(),
+            'liquidaciones_per_page'  => (int) $liquidaciones->perPage(),
+            'liquidaciones_total'     => (int) $liquidaciones->total(),
+
+            'pagos_page'      => (int) $pagos->currentPage(),
+            'pagos_per_page'  => (int) $pagos->perPage(),
+            'pagos_total'     => (int) $pagos->total(),
+        ]);
+
         return view('admin.estado_cuenta.index', compact(
             'clinicas',
             'clinicaId',
@@ -231,11 +259,6 @@ class EstadoCuentaController extends Controller
         ));
     }
 
-    /**
-     * Resuelve el nombre real de una columna en una tabla.
-     * - Prueba una lista de candidatos hasta encontrar uno existente.
-     * - Si no encuentra, lanza excepción con mensaje claro.
-     */
     private function resolveColumn(string $table, array $candidates, string $label): string
     {
         foreach ($candidates as $col) {

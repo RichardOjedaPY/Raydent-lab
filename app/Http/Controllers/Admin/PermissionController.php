@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Support\Audit;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Illuminate\Http\Request;
@@ -13,6 +14,12 @@ class PermissionController extends Controller
     {
         $roles       = Role::orderBy('name')->get();
         $permissions = Permission::with('roles')->orderBy('name')->get();
+
+        // 🧾 AUDIT: vio listado/mapa de permisos
+        Audit::log('permissions', 'view_index', 'Vio mapa de permisos por rol', null, [
+            'roles_count'       => (int) $roles->count(),
+            'permissions_count' => (int) $permissions->count(),
+        ]);
 
         return view('admin.permissions.index', compact('roles', 'permissions'));
     }
@@ -46,7 +53,6 @@ class PermissionController extends Controller
 
         $actions = [];
 
-        // primero las preferidas si existen
         foreach ($preferredActionOrder as $a) {
             if (isset($actionsDetected[$a])) {
                 $actions[$a] = $actionsDetected[$a];
@@ -54,7 +60,6 @@ class PermissionController extends Controller
             }
         }
 
-        // luego el resto (pdf, download, fotos_pdf, estado, etc.)
         ksort($actionsDetected);
         foreach ($actionsDetected as $k => $label) {
             $actions[$k] = $label;
@@ -68,8 +73,17 @@ class PermissionController extends Controller
 
         $modules = $this->orderByPreferred($modules, $preferredModuleOrder);
 
-        // 5) Mapa permiso => objeto Permission (si lo querés usar después)
+        // 5) Mapa permiso => objeto Permission
         $allPermissions = $permissions->keyBy('name');
+
+        // 🧾 AUDIT: abrió edición de permisos de un rol
+        Audit::log('permissions', 'view_edit_role', 'Vio edición de permisos del rol', $role, [
+            'role_id'           => (int) $role->id,
+            'role_name'         => (string) $role->name,
+            'modules_count'     => (int) count($modules),
+            'actions_count'     => (int) count($actions),
+            'permissions_count' => (int) $permissions->count(),
+        ]);
 
         return view('admin.permissions.edit-role', compact(
             'role', 'modules', 'actions', 'allPermissions'
@@ -78,6 +92,9 @@ class PermissionController extends Controller
 
     public function updateRole(Request $request, Role $role)
     {
+        // Snapshot anterior (para auditoría, no altera lógica)
+        $before = $role->permissions()->pluck('name')->values()->all();
+
         $data = $request->validate([
             'perms'   => ['nullable', 'array'],
             'perms.*' => ['string'],
@@ -86,6 +103,27 @@ class PermissionController extends Controller
         $perms = $data['perms'] ?? [];
 
         $role->syncPermissions($perms);
+
+        // Snapshot posterior
+        $after = $role->permissions()->pluck('name')->values()->all();
+
+        // Cambios (resumen, sin hacer pesado el log)
+        $added   = array_values(array_diff($after, $before));
+        $removed = array_values(array_diff($before, $after));
+
+        // 🧾 AUDIT: actualizó permisos del rol
+        Audit::log('permissions', 'updated_role', 'Permisos actualizados para rol', $role, [
+            'role_id'        => (int) $role->id,
+            'role_name'      => (string) $role->name,
+            'before_count'   => (int) count($before),
+            'after_count'    => (int) count($after),
+            'added_count'    => (int) count($added),
+            'removed_count'  => (int) count($removed),
+
+            // limitar para no inflar activity
+            'added'          => array_slice($added, 0, 100),
+            'removed'        => array_slice($removed, 0, 100),
+        ]);
 
         return redirect()
             ->route('admin.permissions.index')
@@ -116,7 +154,6 @@ class PermissionController extends Controller
             'update'   => 'Editar',
             'delete'   => 'Eliminar',
 
-            // Acciones extra frecuentes
             'pdf'       => 'PDF',
             'download'  => 'Descargar',
             'fotos_pdf' => 'Fotos PDF',
@@ -140,7 +177,7 @@ class PermissionController extends Controller
             }
         }
 
-        ksort($items); // el resto alfabético
+        ksort($items);
         foreach ($items as $k => $v) {
             $ordered[$k] = $v;
         }

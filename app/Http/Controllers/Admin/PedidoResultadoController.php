@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Storage;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Support\Audit;
 
-
 class PedidoResultadoController extends Controller
 {
     private function assertPuedeVerPedido(Pedido $pedido): void
@@ -26,12 +25,26 @@ class PedidoResultadoController extends Controller
 
         // Clínica: solo lo suyo
         if ($u->hasRole('clinica')) {
-            abort_unless(
-                $u->clinica_id && (int) $u->clinica_id === (int) $pedido->clinica_id,
-                403
-            );
+            $ok = $u->clinica_id && (int) $u->clinica_id === (int) $pedido->clinica_id;
+
+            if (! $ok) {
+                // 🧾 AUDIT: acceso denegado (clínica intentando ver pedido ajeno)
+                Audit::log('resultados', 'denied', 'Acceso denegado a resultados', $pedido, [
+                    'actor_role'        => 'clinica',
+                    'actor_clinica_id'  => (int) ($u->clinica_id ?? 0),
+                    'pedido_clinica_id' => (int) ($pedido->clinica_id ?? 0),
+                ]);
+            }
+
+            abort_unless($ok, 403);
             return;
         }
+
+        // 🧾 AUDIT: acceso denegado (rol no permitido)
+        Audit::log('resultados', 'denied', 'Acceso denegado a resultados', $pedido, [
+            'actor_role' => $u?->roles?->pluck('name')?->values()?->all() ?? null,
+            'reason'     => 'role_not_allowed',
+        ]);
 
         abort(403);
     }
@@ -45,19 +58,26 @@ class PedidoResultadoController extends Controller
         $this->assertPuedeVerPedido($pedido);
 
         // ✅ Si el archivo no existe en disco, devolvemos 404 (no error 500)
-        abort_unless(
-            Storage::disk($archivo->disk)->exists($archivo->path),
-            404,
-            'Archivo no encontrado.'
-        );
+        $exists = Storage::disk($archivo->disk)->exists($archivo->path);
+        if (! $exists) {
+            // 🧾 AUDIT: intento de descarga pero no existe en disco
+            Audit::log('resultados', 'missing_file', 'Archivo no encontrado en disco', $pedido, [
+                'archivo_id' => (int) $archivo->id,
+                'disk'       => (string) $archivo->disk,
+                'path'       => (string) $archivo->path,
+            ]);
+            abort(404, 'Archivo no encontrado.');
+        }
 
         $name = $archivo->original_name ?: basename((string) $archivo->path);
+
         Audit::log('resultados', 'download', 'Archivo descargado', $pedido, [
             'archivo_id' => $archivo->id,
             'nombre'     => $name,
             'ext'        => $archivo->ext,
             'size'       => $archivo->size,
         ]);
+
         return Storage::disk($archivo->disk)->download($archivo->path, $name);
     }
 
@@ -71,7 +91,16 @@ class PedidoResultadoController extends Controller
         $disk = $foto->disk ?: 'private';
         $path = (string) ($foto->path ?? '');
 
-        abort_unless($path !== '' && Storage::disk($disk)->exists($path), 404, 'Foto no encontrada.');
+        if ($path === '' || !Storage::disk($disk)->exists($path)) {
+            // 🧾 AUDIT: intento de ver foto pero no existe
+            Audit::log('resultados', 'missing_photo', 'Foto no encontrada en disco', $pedido, [
+                'foto_id' => (int) $foto->id,
+                'disk'    => (string) $disk,
+                'path'    => (string) $path,
+                'slot'    => $foto->slot ?? null,
+            ]);
+            abort(404, 'Foto no encontrada.');
+        }
 
         $ext = strtolower((string) ($foto->ext ?: pathinfo($path, PATHINFO_EXTENSION)));
 
@@ -119,8 +148,6 @@ class PedidoResultadoController extends Controller
         return Storage::disk($disk)->response($path, $filename, $headers, 'inline');
     }
 
-
-
     public function pdfFotos(Pedido $pedido)
     {
         $this->assertPuedeVerPedido($pedido);
@@ -135,7 +162,7 @@ class PedidoResultadoController extends Controller
         $slots = PedidoFotoRealizada::SLOTS;
 
         Audit::log('resultados', 'fotos_pdf', 'Fotos exportadas a PDF', $pedido, [
-            'codigo_pedido' => $pedido->codigo_pedido ?? $pedido->id,
+            'codigo_pedido'  => $pedido->codigo_pedido ?? $pedido->id,
             'cantidad_fotos' => (int) $pedido->fotosRealizadas->count(),
         ]);
 

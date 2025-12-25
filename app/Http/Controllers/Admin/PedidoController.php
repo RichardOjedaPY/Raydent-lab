@@ -495,14 +495,112 @@ class PedidoController extends Controller
         $this->guardarRelaciones($pedido, $request);
         $after = $this->snapshotRelaciones($pedido);
 
+        $pedido->loadMissing(['clinica', 'paciente', 'consulta', 'fotos', 'cefalometrias', 'piezas']);
+
+        $snapshot = $this->snapshotPedidoAudit($pedido);
+        
         Audit::log('pedidos', 'created', 'Pedido creado', $pedido, [
             'codigo_pedido' => $pedido->codigo_pedido ?? $pedido->id,
+            'pedido'        => $snapshot, //  
         ]);
+        
 
         return redirect()
             ->route('admin.pedidos.index')
             ->with('success', 'Pedido creado correctamente.');
     }
+
+
+    private function snapshotPedidoAudit(Pedido $pedido): array
+    {
+        $pedido->loadMissing(['clinica', 'paciente', 'consulta', 'fotos', 'cefalometrias', 'piezas']);
+    
+        $trueChecks = collect($this->booleanFields())
+            ->filter(fn($f) => (bool) ($pedido->{$f} ?? false))
+            ->values()
+            ->all();
+    
+        $data = [
+            'id'           => $pedido->id,
+            'codigo'       => $pedido->codigo,
+            'codigo_pedido'=> $pedido->codigo_pedido,
+            'estado'       => $pedido->estado,
+    
+            'clinica' => [
+                'id'     => $pedido->clinica_id,
+                'nombre' => optional($pedido->clinica)->nombre,
+            ],
+    
+            'paciente' => [
+                'id'       => $pedido->paciente_id,
+                'nombre'   => trim((string) (optional($pedido->paciente)->nombre . ' ' . optional($pedido->paciente)->apellido)),
+                'documento'=> optional($pedido->paciente)->documento,
+            ],
+    
+            'consulta' => $pedido->consulta_id ? [
+                'id'        => $pedido->consulta_id,
+                'fecha_hora'=> optional($pedido->consulta)->fecha_hora ? (string) $pedido->consulta->fecha_hora : null,
+                'motivo'    => optional($pedido->consulta)->motivo_consulta,
+            ] : null,
+    
+            'prioridad'      => $pedido->prioridad,
+            'fecha_solicitud'=> $pedido->fecha_solicitud,
+            'agenda' => [
+                'fecha' => $pedido->fecha_agendada,
+                'hora'  => $pedido->hora_agendada,
+            ],
+    
+            'doctor' => [
+                'nombre'   => $pedido->doctor_nombre,
+                'telefono' => $pedido->doctor_telefono,
+                'email'    => $pedido->doctor_email,
+            ],
+    
+            'paciente_documento' => $pedido->paciente_documento,
+            'direccion'          => $pedido->direccion,
+    
+            // Campos “extra” (solo si vienen)
+            'rx_panoramica_trazado_region' => $pedido->rx_panoramica_trazado_region,
+            'rx_periapical_region'         => $pedido->rx_periapical_region,
+            'ct_parcial_zona'              => $pedido->ct_parcial_zona,
+            'entrega_software_detalle'     => $pedido->entrega_software_detalle,
+    
+            'documentacion_tipo' => $pedido->documentacion_tipo,
+            'descripcion_caso'   => $pedido->descripcion_caso,
+    
+            // Selecciones (relaciones)
+            'selecciones' => $this->snapshotRelaciones($pedido),
+    
+            // ✅ Solo los checks que están en true (no te lleno el log con 80 false)
+            'checks_true' => $trueChecks,
+        ];
+    
+        return $this->arrayFilterDeep($data);
+    }
+    
+    private function arrayFilterDeep(array $arr): array
+    {
+        $out = [];
+    
+        foreach ($arr as $k => $v) {
+            if (is_array($v)) {
+                $v = $this->arrayFilterDeep($v);
+                if ($v === []) continue;
+                $out[$k] = $v;
+                continue;
+            }
+    
+            if ($v === null) continue;
+            if (is_string($v) && trim($v) === '') continue;
+    
+            $out[$k] = $v;
+        }
+    
+        return $out;
+    }
+    
+
+    
     public function update(Request $request, Pedido $pedido)
     {
         $user    = $request->user();

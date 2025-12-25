@@ -12,8 +12,6 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\Pedido;
 use App\Support\Audit;
 
-
-
 class PacienteController extends Controller
 {
     public function __construct()
@@ -24,234 +22,267 @@ class PacienteController extends Controller
         $this->middleware('permission:pacientes.delete')->only(['destroy', 'toggleStatus']);
     }
 
-     
     public function index(Request $request)
-{
-    $user     = $request->user();
-    $isAdmin  = $user->hasRole('admin');
+    {
+        $user     = $request->user();
+        $isAdmin  = $user->hasRole('admin');
 
-    $search = trim((string) $request->get('search', ''));
+        $search = trim((string) $request->get('search', ''));
 
-    // 🔒 Multi-tenant: clínica solo ve su clínica
-    $clinicaId = $isAdmin ? $request->get('clinica_id') : ($user->clinica_id);
+        // 🔒 Multi-tenant: clínica solo ve su clínica
+        $clinicaId = $isAdmin ? $request->get('clinica_id') : ($user->clinica_id);
 
-    $pacientes = Paciente::with('clinica')
-        ->when($clinicaId, function ($q) use ($clinicaId) {
-            $q->where('clinica_id', $clinicaId);
-        })
-        ->when($search !== '', function ($q) use ($search) {
-            $q->where(function ($w) use ($search) {
-                $w->where('nombre', 'like', "%{$search}%")
-                  ->orWhere('apellido', 'like', "%{$search}%")
-                  ->orWhere('documento', 'like', "%{$search}%");
-            });
-        })
-        ->orderBy('apellido')
-        ->orderBy('nombre')
-        ->paginate(20)
-        ->withQueryString();
+        $pacientes = Paciente::with('clinica')
+            ->when($clinicaId, function ($q) use ($clinicaId) {
+                $q->where('clinica_id', $clinicaId);
+            })
+            ->when($search !== '', function ($q) use ($search) {
+                $q->where(function ($w) use ($search) {
+                    $w->where('nombre', 'like', "%{$search}%")
+                      ->orWhere('apellido', 'like', "%{$search}%")
+                      ->orWhere('documento', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy('apellido')
+            ->orderBy('nombre')
+            ->paginate(20)
+            ->withQueryString();
 
-    $clinicas = $isAdmin
-        ? Clinica::where('is_active', true)->orderBy('nombre')->get()
-        : Clinica::where('id', $user->clinica_id)->get();
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
 
-    return view('admin.pacientes.index', compact('pacientes', 'clinicas', 'search', 'clinicaId'));
-}
+        // 🧾 AUDIT: vio listado de pacientes (con filtros)
+        Audit::log('pacientes', 'view_list', 'Vio listado de pacientes', null, [
+            'is_admin'   => (bool) $isAdmin,
+            'clinica_id' => $clinicaId ? (int) $clinicaId : null,
+            'search'     => $search !== '' ? $search : null,
 
-public function create()
-{
-    $user    = Auth::user();
-    $isAdmin = $user->hasRole('admin');
+            'page'       => (int) $pacientes->currentPage(),
+            'per_page'   => (int) $pacientes->perPage(),
+            'total'      => (int) $pacientes->total(),
+        ]);
 
-    if (! $isAdmin && ! $user->clinica_id) {
-        abort(403, 'Usuario clínica sin clínica asignada.');
+        return view('admin.pacientes.index', compact('pacientes', 'clinicas', 'search', 'clinicaId'));
     }
 
-    $paciente = new Paciente();
+    public function create()
+    {
+        $user    = Auth::user();
+        $isAdmin = $user->hasRole('admin');
 
-    $clinicas = $isAdmin
-        ? Clinica::where('is_active', true)->orderBy('nombre')->get()
-        : Clinica::where('id', $user->clinica_id)->get();
+        if (! $isAdmin && ! $user->clinica_id) {
+            abort(403, 'Usuario clínica sin clínica asignada.');
+        }
 
-    return view('admin.pacientes.create', compact('paciente', 'clinicas'));
-}
+        $paciente = new Paciente();
 
-public function store(Request $request)
-{
-    $user    = $request->user();
-    $isAdmin = $user->hasRole('admin');
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
 
-    if (! $isAdmin && ! $user->clinica_id) {
-        abort(403, 'Usuario clínica sin clínica asignada.');
+        // 🧾 AUDIT: vio formulario de creación
+        Audit::log('pacientes', 'view_create', 'Vio formulario crear paciente', null, [
+            'is_admin'   => (bool) $isAdmin,
+            'clinica_id' => (int) ($user->clinica_id ?? 0),
+        ]);
+
+        return view('admin.pacientes.create', compact('paciente', 'clinicas'));
     }
 
-    $rules = [
-        'clinica_id'       => $isAdmin ? ['required', 'integer', 'exists:clinicas,id'] : ['nullable'],
-        'nombre'           => ['required', 'string', 'max:120'],
-        'apellido'         => ['nullable', 'string', 'max:120'],
-        'documento'        => ['nullable', 'string', 'max:30'],
-        'fecha_nacimiento' => ['nullable', 'date'],
-        'edad'             => ['nullable', 'integer', 'min:0', 'max:130'],
-        'genero'           => ['nullable', 'string', Rule::in(['M', 'F', 'O'])],
-        'telefono'         => ['nullable', 'string', 'max:50'],
-        'email'            => ['nullable', 'email', 'max:255'],
-        'direccion'        => ['nullable', 'string', 'max:255'],
-        'ciudad'           => ['nullable', 'string', 'max:100'],
-        'is_active'        => ['nullable', 'boolean'],
-        'observaciones'    => ['nullable', 'string'],
-    ];
+    public function store(Request $request)
+    {
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
 
-    $data = $request->validate($rules);
+        if (! $isAdmin && ! $user->clinica_id) {
+            abort(403, 'Usuario clínica sin clínica asignada.');
+        }
 
-    // 🔒 Multi-tenant: clínica no elige clinica_id
-    if (! $isAdmin) {
-        $data['clinica_id'] = $user->clinica_id;
+        $rules = [
+            'clinica_id'       => $isAdmin ? ['required', 'integer', 'exists:clinicas,id'] : ['nullable'],
+            'nombre'           => ['required', 'string', 'max:120'],
+            'apellido'         => ['nullable', 'string', 'max:120'],
+            'documento'        => ['nullable', 'string', 'max:30'],
+            'fecha_nacimiento' => ['nullable', 'date'],
+            'edad'             => ['nullable', 'integer', 'min:0', 'max:130'],
+            'genero'           => ['nullable', 'string', Rule::in(['M', 'F', 'O'])],
+            'telefono'         => ['nullable', 'string', 'max:50'],
+            'email'            => ['nullable', 'email', 'max:255'],
+            'direccion'        => ['nullable', 'string', 'max:255'],
+            'ciudad'           => ['nullable', 'string', 'max:100'],
+            'is_active'        => ['nullable', 'boolean'],
+            'observaciones'    => ['nullable', 'string'],
+        ];
+
+        $data = $request->validate($rules);
+
+        // 🔒 Multi-tenant: clínica no elige clinica_id
+        if (! $isAdmin) {
+            $data['clinica_id'] = $user->clinica_id;
+        }
+
+        $data['is_active'] = $data['is_active'] ?? true;
+
+        // 🎂 Si hay fecha, calculamos edad automáticamente (servidor)
+        if (! empty($data['fecha_nacimiento'])) {
+            $data['edad'] = Carbon::parse($data['fecha_nacimiento'])->age;
+        }
+
+        $paciente = Paciente::create($data);
+
+        // 🧾 AUDIT: creó paciente
+        Audit::log('pacientes', 'created', 'Paciente creado', $paciente, [
+            'paciente_id' => (int) $paciente->id,
+            'clinica_id'  => (int) ($paciente->clinica_id ?? 0),
+            'is_admin'    => (bool) $isAdmin,
+        ]);
+
+        return redirect()
+            ->route('admin.pacientes.show', $paciente)
+            ->with('success', 'Paciente creado correctamente.');
     }
 
-    $data['is_active'] = $data['is_active'] ?? true;
+    public function show(Paciente $paciente)
+    {
+        $user    = Auth::user();
+        $isAdmin = $user->hasRole('admin');
 
-    // 🎂 Si hay fecha, calculamos edad automáticamente (servidor)
-    if (! empty($data['fecha_nacimiento'])) {
-        $data['edad'] = Carbon::parse($data['fecha_nacimiento'])->age;
-    }
+        // 🔒 Multi-tenant
+        if (! $isAdmin && (int) $paciente->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
 
-    $paciente = Paciente::create($data);
+        $paciente->load('clinica');
 
-    return redirect()
-        ->route('admin.pacientes.show', $paciente)
-        ->with('success', 'Paciente creado correctamente.');
-}
+        // ✅ Historial: últimas consultas
+        $consultas = $paciente->consultas()
+            ->orderByDesc('fecha_hora')
+            ->limit(20)
+            ->get();
 
-public function show(Paciente $paciente)
-{
-    $user    = Auth::user();
-    $isAdmin = $user->hasRole('admin');
+        // ✅ Historial: últimos pedidos + cantidad de fotos realizadas
+        $pedidos = $paciente->pedidos()
+            ->with(['clinica'])
+            ->withCount('fotosRealizadas')
+            ->orderByDesc('fecha_solicitud')
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get();
 
-    // 🔒 Multi-tenant
-    if (! $isAdmin && (int) $paciente->clinica_id !== (int) $user->clinica_id) {
-        abort(403);
-    }
-
-    $paciente->load('clinica');
-
-    // ✅ Historial: últimas consultas
-    $consultas = $paciente->consultas()
-        ->orderByDesc('fecha_hora')
-        ->limit(20)
-        ->get();
-
-    // ✅ Historial: últimos pedidos + cantidad de fotos realizadas
-    $pedidos = $paciente->pedidos()
-        ->with(['clinica'])
-        ->withCount('fotosRealizadas')
-        ->orderByDesc('fecha_solicitud')
-        ->orderByDesc('id')
-        ->limit(20)
-        ->get();
         Audit::log('pacientes', 'view', 'Paciente visualizado', $paciente);
 
-    return view('admin.pacientes.show', compact('paciente', 'consultas', 'pedidos'));
-}
-
-
-public function edit(Paciente $paciente)
-{
-    $user    = Auth::user();
-    $isAdmin = $user->hasRole('admin');
-
-    if (! $isAdmin && (int) $paciente->clinica_id !== (int) $user->clinica_id) {
-        abort(403);
+        return view('admin.pacientes.show', compact('paciente', 'consultas', 'pedidos'));
     }
 
-    $clinicas = $isAdmin
-        ? Clinica::where('is_active', true)->orderBy('nombre')->get()
-        : Clinica::where('id', $user->clinica_id)->get();
+    public function edit(Paciente $paciente)
+    {
+        $user    = Auth::user();
+        $isAdmin = $user->hasRole('admin');
 
-    return view('admin.pacientes.edit', compact('paciente', 'clinicas'));
-}
+        if (! $isAdmin && (int) $paciente->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
 
-public function update(Request $request, Paciente $paciente)
-{
-    $user    = $request->user();
-    $isAdmin = $user->hasRole('admin');
+        $clinicas = $isAdmin
+            ? Clinica::where('is_active', true)->orderBy('nombre')->get()
+            : Clinica::where('id', $user->clinica_id)->get();
 
-    if (! $isAdmin && (int) $paciente->clinica_id !== (int) $user->clinica_id) {
-        abort(403);
+        // 🧾 AUDIT: vio formulario de edición
+        Audit::log('pacientes', 'view_edit', 'Vio formulario editar paciente', $paciente, [
+            'paciente_id' => (int) $paciente->id,
+            'clinica_id'  => (int) ($paciente->clinica_id ?? 0),
+            'is_admin'    => (bool) $isAdmin,
+        ]);
+
+        return view('admin.pacientes.edit', compact('paciente', 'clinicas'));
     }
 
-    $rules = [
-        'clinica_id'       => $isAdmin ? ['required', 'integer', 'exists:clinicas,id'] : ['nullable'],
-        'nombre'           => ['required', 'string', 'max:120'],
-        'apellido'         => ['nullable', 'string', 'max:120'],
-        'documento'        => ['nullable', 'string', 'max:30'],
-        'fecha_nacimiento' => ['nullable', 'date'],
-        'edad'             => ['nullable', 'integer', 'min:0', 'max:130'],
-        'genero'           => ['nullable', 'string', Rule::in(['M', 'F', 'O'])],
-        'telefono'         => ['nullable', 'string', 'max:50'],
-        'email'            => ['nullable', 'email', 'max:255'],
-        'direccion'        => ['nullable', 'string', 'max:255'],
-        'ciudad'           => ['nullable', 'string', 'max:100'],
-        'is_active'        => ['nullable', 'boolean'],
-        'observaciones'    => ['nullable', 'string'],
-    ];
+    public function update(Request $request, Paciente $paciente)
+    {
+        $user    = $request->user();
+        $isAdmin = $user->hasRole('admin');
 
-    $data = $request->validate($rules);
+        if (! $isAdmin && (int) $paciente->clinica_id !== (int) $user->clinica_id) {
+            abort(403);
+        }
 
-    if (! $isAdmin) {
-        $data['clinica_id'] = $user->clinica_id;
+        $rules = [
+            'clinica_id'       => $isAdmin ? ['required', 'integer', 'exists:clinicas,id'] : ['nullable'],
+            'nombre'           => ['required', 'string', 'max:120'],
+            'apellido'         => ['nullable', 'string', 'max:120'],
+            'documento'        => ['nullable', 'string', 'max:30'],
+            'fecha_nacimiento' => ['nullable', 'date'],
+            'edad'             => ['nullable', 'integer', 'min:0', 'max:130'],
+            'genero'           => ['nullable', 'string', Rule::in(['M', 'F', 'O'])],
+            'telefono'         => ['nullable', 'string', 'max:50'],
+            'email'            => ['nullable', 'email', 'max:255'],
+            'direccion'        => ['nullable', 'string', 'max:255'],
+            'ciudad'           => ['nullable', 'string', 'max:100'],
+            'is_active'        => ['nullable', 'boolean'],
+            'observaciones'    => ['nullable', 'string'],
+        ];
+
+        $data = $request->validate($rules);
+
+        if (! $isAdmin) {
+            $data['clinica_id'] = $user->clinica_id;
+        }
+
+        if (! array_key_exists('is_active', $data)) {
+            unset($data['is_active']);
+        }
+
+        if (! empty($data['fecha_nacimiento'])) {
+            $data['edad'] = Carbon::parse($data['fecha_nacimiento'])->age;
+        }
+
+        $paciente->update($data);
+
+        // 🧾 AUDIT: actualizó paciente
+        Audit::log('pacientes', 'updated', 'Paciente actualizado', $paciente, [
+            'paciente_id' => (int) $paciente->id,
+            'clinica_id'  => (int) ($paciente->clinica_id ?? 0),
+            'is_admin'    => (bool) $isAdmin,
+        ]);
+
+        return redirect()
+            ->route('admin.pacientes.show', $paciente)
+            ->with('success', 'Paciente actualizado correctamente.');
     }
 
-    if (! array_key_exists('is_active', $data)) {
-        unset($data['is_active']);
+    public function destroy(Paciente $paciente)
+    {
+        $before = (bool) $paciente->is_active;
+
+        // Desactivamos en lugar de borrar físico
+        $paciente->is_active = false;
+        $paciente->save();
+
+        Audit::log('pacientes', 'disabled', 'Paciente desactivado', $paciente, [
+            'before_is_active' => $before,
+            'after_is_active'  => (bool) $paciente->is_active,
+        ]);
+
+        return redirect()
+            ->route('admin.pacientes.index')
+            ->with('success', 'Paciente desactivado correctamente.');
     }
-    
 
-    if (! empty($data['fecha_nacimiento'])) {
-        $data['edad'] = Carbon::parse($data['fecha_nacimiento'])->age;
+    public function toggleStatus(Paciente $paciente)
+    {
+        $before = (bool) $paciente->is_active;
+
+        $paciente->is_active = ! $paciente->is_active;
+        $paciente->save();
+
+        Audit::log('pacientes', 'status_toggled', 'Estado del paciente actualizado', $paciente, [
+            'before_is_active' => $before,
+            'after_is_active'  => (bool) $paciente->is_active,
+        ]);
+
+        return redirect()
+            ->route('admin.pacientes.index')
+            ->with('success', 'Estado del paciente actualizado.');
     }
-
-    $paciente->update($data);
-
-    return redirect()
-        ->route('admin.pacientes.show', $paciente)
-        ->with('success', 'Paciente actualizado correctamente.');
-}
-
-
-public function destroy(Paciente $paciente)
-{
-    $before = (bool) $paciente->is_active;
-
-    // Desactivamos en lugar de borrar físico
-    $paciente->is_active = false;
-    $paciente->save();
-
-    Audit::log('pacientes', 'disabled', 'Paciente desactivado', $paciente, [
-        'before_is_active' => $before,
-        'after_is_active'  => (bool) $paciente->is_active,
-    ]);
-
-    return redirect()
-        ->route('admin.pacientes.index')
-        ->with('success', 'Paciente desactivado correctamente.');
-}
-
-
-public function toggleStatus(Paciente $paciente)
-{
-    $before = (bool) $paciente->is_active;
-
-    $paciente->is_active = ! $paciente->is_active;
-    $paciente->save();
-
-    Audit::log('pacientes', 'status_toggled', 'Estado del paciente actualizado', $paciente, [
-        'before_is_active' => $before,
-        'after_is_active'  => (bool) $paciente->is_active,
-    ]);
-
-    return redirect()
-        ->route('admin.pacientes.index')
-        ->with('success', 'Estado del paciente actualizado.');
-}
-
 }

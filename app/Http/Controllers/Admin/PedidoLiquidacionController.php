@@ -13,25 +13,24 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\TarifarioClinicaPrecio;
 
-
 class PedidoLiquidacionController extends Controller
 {
     public function __construct()
-{
-    /**
-     * ✅ Este flujo NO es "editar pedido".
-     * Es "liquidar / cargar precios", con permiso separado.
-     */
-    $this->middleware('permission:pedidos.liquidar')->only(['edit', 'update']);
-}
+    {
+        /**
+         * ✅ Este flujo NO es "editar pedido".
+         * Es "liquidar / cargar precios", con permiso separado.
+         */
+        $this->middleware('permission:pedidos.liquidar')->only(['edit', 'update']);
+    }
 
     public function edit(Pedido $pedido)
     {
         $user = auth()->user();
 
-    if (! $user || ! $user->can('pedidos.liquidar')) {
-        abort(403);
-    }
+        if (! $user || ! $user->can('pedidos.liquidar')) {
+            abort(403);
+        }
 
         $pedido->load(['clinica', 'paciente', 'fotos', 'cefalometrias', 'piezas', 'liquidacion.items']);
 
@@ -57,10 +56,12 @@ class PedidoLiquidacionController extends Controller
         $tarifas = TarifarioConcepto::whereIn('concept_key', collect($items)->pluck('key')->all())
             ->get()
             ->keyBy('concept_key');
+
         $overrides = TarifarioClinicaPrecio::where('clinica_id', $pedido->clinica_id)
             ->whereIn('concept_key', collect($items)->pluck('key')->all())
             ->get()
             ->keyBy('concept_key');
+
         // 4) Si ya existe liquidación, precargar valores (precio_final / observacion)
         $liq = $pedido->liquidacion;
 
@@ -79,22 +80,30 @@ class PedidoLiquidacionController extends Controller
 
             $ov = $overrides->get($key);
             $base = $ov ? (int) $ov->precio_gs : (int) optional($tarifas->get($key))->precio_gs;
-            
 
             $existing = $itemsByKey[$key] ?? null;
             $precioFinal = $existing ? (int) $existing->precio_final_gs : $base;
 
             $viewItems[] = [
-                'key'            => $key,
-                'label'          => $it['label'],
-                'grupo'          => $it['grupo'] ?? null,
-                'cantidad'       => (int) ($it['cantidad'] ?? 1),
-                'observacion'    => $existing ? ($existing->observacion ?? '') : ($it['observacion'] ?? ''),
-                'precio_base_gs' => $base,
+                'key'             => $key,
+                'label'           => $it['label'],
+                'grupo'           => $it['grupo'] ?? null,
+                'cantidad'        => (int) ($it['cantidad'] ?? 1),
+                'observacion'     => $existing ? ($existing->observacion ?? '') : ($it['observacion'] ?? ''),
+                'precio_base_gs'  => $base,
                 'precio_final_gs' => $precioFinal,
-                'orden'          => $orden++,
+                'orden'           => $orden++,
             ];
         }
+
+        // 🧾 AUDIT: abrió/vio pantalla de liquidación del pedido (solo registro, no cambia lógica)
+        Audit::log('pedidos', 'liquidacion_view', 'Vio pantalla de liquidación', $pedido, [
+            'pedido_id'       => (int) $pedido->id,
+            'clinica_id'      => (int) ($pedido->clinica_id ?? 0),
+            'paciente_id'     => (int) ($pedido->paciente_id ?? 0),
+            'liquidacion_id'  => (int) ($liq?->id ?? 0),
+            'items_count'     => (int) count($viewItems),
+        ]);
 
         return view('admin.pedidos.liquidar', compact('pedido', 'viewItems', 'liq'));
     }
@@ -103,9 +112,9 @@ class PedidoLiquidacionController extends Controller
     {
         $user = auth()->user();
 
-    if (! $user || ! $user->can('pedidos.liquidar')) {
-        abort(403);
-    }
+        if (! $user || ! $user->can('pedidos.liquidar')) {
+            abort(403);
+        }
 
         $pedido->load(['clinica', 'paciente', 'liquidacion.items']);
 
@@ -147,7 +156,10 @@ class PedidoLiquidacionController extends Controller
             ];
         }
 
-        DB::transaction(function () use ($pedido, $rows, $total) {
+        // Para audit con más contexto (sin alterar lógica)
+        $liqId = 0;
+
+        DB::transaction(function () use ($pedido, $rows, $total, &$liqId) {
             $liq = PedidoLiquidacion::updateOrCreate(
                 ['pedido_id' => $pedido->id],
                 [
@@ -160,6 +172,8 @@ class PedidoLiquidacionController extends Controller
                 ]
             );
 
+            $liqId = (int) $liq->id;
+
             // Reemplazar items (simple y robusto)
             $liq->items()->delete();
 
@@ -168,9 +182,13 @@ class PedidoLiquidacionController extends Controller
             }
         });
 
+        // 🧾 AUDIT: guardó liquidación (mantiene tu log, solo amplía metadatos)
         Audit::log('pedidos', 'liquidacion_saved', 'Liquidación guardada', $pedido, [
-            'pedido_id' => $pedido->id,
-            'total_gs'  => $total,
+            'pedido_id'      => (int) $pedido->id,
+            'clinica_id'     => (int) ($pedido->clinica_id ?? 0),
+            'liquidacion_id' => (int) $liqId,
+            'items_count'    => (int) count($rows),
+            'total_gs'       => (int) $total,
         ]);
 
         return redirect()
@@ -264,30 +282,19 @@ class PedidoLiquidacionController extends Controller
             ];
         }
 
-        // Orden estable
         return $items;
     }
 
     private function conceptLabelMap(): array
     {
-        // Solo lo cobrable. Finalidad_* queda como informativo (no lo metemos acá).
         return [
-            // RX
-            'rx_panoramica_convencional' => [
-                'label' => 'Panorámica - Convencional',
-                'grupo' => 'RX',
-                'obs'   => null,
-            ],
+            'rx_panoramica_convencional' => ['label' => 'Panorámica - Convencional', 'grupo' => 'RX', 'obs' => null],
             'rx_panoramica_trazado_implante' => [
                 'label' => 'Panorámica - Con trazado p/ implante',
                 'grupo' => 'RX',
                 'obs'   => fn(Pedido $p) => $p->rx_panoramica_trazado_region ? ('Región: ' . $p->rx_panoramica_trazado_region) : null,
             ],
-            'rx_panoramica_atm_boca_abierta_cerrada' => [
-                'label' => 'Panorámica - ATM (boca abierta y cerrada)',
-                'grupo' => 'RX',
-                'obs'   => null,
-            ],
+            'rx_panoramica_atm_boca_abierta_cerrada' => ['label' => 'Panorámica - ATM (boca abierta y cerrada)', 'grupo' => 'RX', 'obs' => null],
             'rx_teleradiografia_lateral' => ['label' => 'Teleradiografía - Lateral', 'grupo' => 'RX', 'obs' => null],
             'rx_teleradiografia_frontal_pa' => ['label' => 'Teleradiografía - Frontal (PA)', 'grupo' => 'RX', 'obs' => null],
             'rx_teleradiografia_waters' => ['label' => 'Teleradiografía - Waters', 'grupo' => 'RX', 'obs' => null],
@@ -304,14 +311,12 @@ class PedidoLiquidacionController extends Controller
             'rx_periapical_status_radiografico' => ['label' => 'Periapical - Status radiográfico (todos)', 'grupo' => 'RX', 'obs' => null],
             'rx_periapical_tecnica_clark' => ['label' => 'Periapical - Técnica de Clark', 'grupo' => 'RX', 'obs' => null],
 
-            // Intraoral
             'intraoral_maxilar_superior' => ['label' => 'Escaneamiento intraoral - Maxilar superior', 'grupo' => 'Intraoral', 'obs' => null],
             'intraoral_mandibula' => ['label' => 'Escaneamiento intraoral - Mandíbula', 'grupo' => 'Intraoral', 'obs' => null],
             'intraoral_maxilar_mandibula_completa' => ['label' => 'Escaneamiento intraoral - Maxilar y mandíbula completa', 'grupo' => 'Intraoral', 'obs' => null],
             'intraoral_modelo_con_base' => ['label' => 'Intraoral - Modelo con base (Estudio)', 'grupo' => 'Intraoral', 'obs' => null],
             'intraoral_modelo_sin_base' => ['label' => 'Intraoral - Modelo sin base (Trabajo)', 'grupo' => 'Intraoral', 'obs' => null],
 
-            // CT
             'ct_maxilar_completa' => ['label' => 'Tomografía - Maxilar completa', 'grupo' => 'CT', 'obs' => null],
             'ct_mandibula_completa' => ['label' => 'Tomografía - Mandíbula completa', 'grupo' => 'CT', 'obs' => null],
             'ct_maxilar_arco_cigomatico' => ['label' => 'Tomografía - Maxilar (arco cigomático)', 'grupo' => 'CT', 'obs' => null],
@@ -323,7 +328,6 @@ class PedidoLiquidacionController extends Controller
             ],
             'ct_region_senalada_abajo' => ['label' => 'Tomografía - Región señalada abajo', 'grupo' => 'CT', 'obs' => null],
 
-            // Entrega
             'entrega_pdf' => ['label' => 'Entrega - Digital (PDF)', 'grupo' => 'Entrega', 'obs' => null],
             'entrega_papel_fotografico' => ['label' => 'Entrega - Papel fotográfico', 'grupo' => 'Entrega', 'obs' => null],
             'entrega_dicom' => ['label' => 'Entrega - DICOM', 'grupo' => 'Entrega', 'obs' => null],
@@ -337,7 +341,6 @@ class PedidoLiquidacionController extends Controller
 
     private function getCatalogos(): array
     {
-        // Mismo catálogo que tu PedidoController (copiado para mantener independencia)
         $fotosTipos = [
             'frente'            => 'Frente',
             'perfil_derecho'    => 'Perfil derecho',

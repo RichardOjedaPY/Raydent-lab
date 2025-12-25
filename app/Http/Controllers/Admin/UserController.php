@@ -11,11 +11,8 @@ use Spatie\Permission\Models\Role;
 use App\Models\Clinica;
 use App\Support\Audit;
 
-
-
 class UserController extends Controller
 {
-
     public function __construct()
     {
         $this->middleware('permission:usuarios.view')->only(['index']);
@@ -39,40 +36,59 @@ class UserController extends Controller
             ->paginate(15)
             ->withQueryString();
 
+        // 🧾 AUDIT: vio listado de usuarios
+        Audit::log('usuarios', 'view_list', 'Vio listado de usuarios', null, [
+            'search'   => $search !== '' ? $search : null,
+            'page'     => (int) $users->currentPage(),
+            'per_page' => (int) $users->perPage(),
+            'total'    => (int) $users->total(),
+        ]);
+
         return view('admin.usuarios.index', compact('users', 'search'));
     }
 
-
     public function create()
     {
-        $user      = new User();
+        $user = new User();
+
         $roles = Role::whereIn('name', ['admin', 'tecnico', 'clinica', 'cajero'])
-        ->orderBy('name')
-        ->get();
-    
-        $clinicas  = Clinica::where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        $clinicas = Clinica::where('is_active', true)
             ->orderBy('nombre')
             ->get();
+
+        // 🧾 AUDIT: vio formulario de creación de usuario
+        Audit::log('usuarios', 'view_create', 'Vio formulario crear usuario', null, [
+            'roles_count'    => (int) $roles->count(),
+            'clinicas_count' => (int) $clinicas->count(),
+        ]);
 
         return view('admin.usuarios.create', compact('user', 'roles', 'clinicas'));
     }
 
     public function edit(User $usuario)
     {
-        $user      = $usuario;
+        $user = $usuario;
+
         $roles = Role::whereIn('name', ['admin', 'tecnico', 'clinica', 'cajero'])
-        ->orderBy('name')
-        ->get();
-    
-        $clinicas  = Clinica::where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        $clinicas = Clinica::where('is_active', true)
             ->orderBy('nombre')
             ->get();
 
+        // 🧾 AUDIT: vio formulario de edición de usuario
+        Audit::log('usuarios', 'view_edit', 'Vio formulario editar usuario', $user, [
+            'user_id'        => (int) $user->id,
+            'roles_count'    => (int) $roles->count(),
+            'clinicas_count' => (int) $clinicas->count(),
+        ]);
+
         return view('admin.usuarios.edit', compact('user', 'roles', 'clinicas'));
     }
-
-
-
 
     public function store(Request $request)
     {
@@ -104,163 +120,161 @@ class UserController extends Controller
             $data['tipo_usuario_clinica'] = null;
         }
 
-        $user                        = new User();
-        $user->clinica_id            = $data['clinica_id'];
-        $user->tipo_usuario_clinica  = $data['tipo_usuario_clinica'];
-        $user->name                  = $data['name'];
-        $user->email                 = $data['email'];
-        $user->password              = Hash::make($data['password']);
-        $user->is_active             = $data['is_active'] ?? false;
+        $user                       = new User();
+        $user->clinica_id           = $data['clinica_id'];
+        $user->tipo_usuario_clinica = $data['tipo_usuario_clinica'];
+        $user->name                 = $data['name'];
+        $user->email                = $data['email'];
+        $user->password             = Hash::make($data['password']);
+        $user->is_active            = $data['is_active'] ?? false;
         $user->save();
+
+        // 🧾 AUDIT: usuario creado (evento principal)
+        Audit::log('usuarios', 'created', 'Usuario creado', $user, [
+            'user_id'              => (int) $user->id,
+            'email'                => (string) $user->email,
+            'is_active'            => (bool) $user->is_active,
+            'clinica_id'           => $user->clinica_id ? (int) $user->clinica_id : null,
+            'tipo_usuario_clinica' => $user->tipo_usuario_clinica,
+            'role'                 => (string) $data['role'],
+        ]);
 
         $user->syncRoles([$data['role']]);
         $afterRoles = $user->getRoleNames()->values()->all();
+
         Audit::log('usuarios', 'roles_set', 'Roles asignados al usuario', $user, [
-            'roles' => $afterRoles,
-            'clinica_id' => $user->clinica_id,
+            'roles'                => $afterRoles,
+            'clinica_id'           => $user->clinica_id,
             'tipo_usuario_clinica' => $user->tipo_usuario_clinica,
         ]);
-        
+
         return redirect()
             ->route('admin.usuarios.index')
             ->with('success', 'Usuario creado correctamente.');
     }
 
-
-
-
-
-
-
     public function update(Request $request, User $usuario)
-{
-    $user = $usuario;
+    {
+        $user = $usuario;
 
-    $data = $request->validate([
-        'name'                 => ['required', 'string', 'max:255'],
-        'email'                => [
-            'required','email','max:255',
-            Rule::unique('users', 'email')->ignore($user->id),
-        ],
-        'password'             => ['nullable', 'string', 'min:8', 'confirmed'],
-        'is_active'            => ['nullable', 'boolean'],
-        'role'                 => ['required', 'string', 'exists:roles,name'],
-        'clinica_id'           => ['nullable', 'integer', 'exists:clinicas,id'],
-        'tipo_usuario_clinica' => ['nullable', 'string', Rule::in(['owner', 'staff'])],
-    ]);
-
-    if ($data['role'] === 'clinica') {
-        if (empty($data['clinica_id'])) {
-            return back()->withErrors(['clinica_id' => 'Debe seleccionar una clínica para usuarios con rol Clínica.'])->withInput();
-        }
-        if (empty($data['tipo_usuario_clinica'])) {
-            return back()->withErrors(['tipo_usuario_clinica' => 'Debe seleccionar el tipo de usuario dentro de la clínica.'])->withInput();
-        }
-    } else {
-        $data['clinica_id']           = null;
-        $data['tipo_usuario_clinica'] = null;
-    }
-
-    // BEFORE (campos relevantes)
-    $before = $user->only(['name','email','is_active','clinica_id','tipo_usuario_clinica']);
-    $beforeRoles = $user->getRoleNames()->values()->all();
-
-    // Aplicar cambios
-    $user->name  = $data['name'];
-    $user->email = $data['email'];
-
-    $passwordChanged = !empty($data['password']);
-    if ($passwordChanged) {
-        $user->password = Hash::make($data['password']);
-    }
-
-    // Si el checkbox no vino, no tocar
-    if (array_key_exists('is_active', $data)) {
-        $user->is_active = (bool) $data['is_active'];
-    }
-
-    $user->clinica_id           = $data['clinica_id'];
-    $user->tipo_usuario_clinica = $data['tipo_usuario_clinica'];
-
-    // Guardar
-    $user->save();
-
-    // Roles (una sola vez)
-    $user->syncRoles([$data['role']]);
-    $afterRoles = $user->getRoleNames()->values()->all();
-
-    // AFTER
-    $user->refresh();
-    $after = $user->only(['name','email','is_active','clinica_id','tipo_usuario_clinica']);
-
-    // Armar “changes” limpio (sin exponer hash)
-    $changes = [];
-
-    foreach (['name','email','is_active','clinica_id','tipo_usuario_clinica'] as $k) {
-        if (($before[$k] ?? null) != ($after[$k] ?? null)) {
-            $changes[$k] = ['before' => $before[$k] ?? null, 'after' => $after[$k] ?? null];
-        }
-    }
-
-    if ($passwordChanged) {
-        $changes['password'] = ['before' => '(oculto)', 'after' => '(actualizado)'];
-    }
-
-    if ($beforeRoles !== $afterRoles) {
-        $changes['roles'] = ['before' => $beforeRoles, 'after' => $afterRoles];
-    }
-
-    // LOG si hubo cualquier cambio
-    if (!empty($changes)) {
-        Audit::log('usuarios', 'updated', 'Usuario actualizado', $user, [
-            'clinica_id' => $user->clinica_id,
-            'changes'    => $changes,
+        $data = $request->validate([
+            'name'                 => ['required', 'string', 'max:255'],
+            'email'                => [
+                'required', 'email', 'max:255',
+                Rule::unique('users', 'email')->ignore($user->id),
+            ],
+            'password'             => ['nullable', 'string', 'min:8', 'confirmed'],
+            'is_active'            => ['nullable', 'boolean'],
+            'role'                 => ['required', 'string', 'exists:roles,name'],
+            'clinica_id'           => ['nullable', 'integer', 'exists:clinicas,id'],
+            'tipo_usuario_clinica' => ['nullable', 'string', Rule::in(['owner', 'staff'])],
         ]);
+
+        if ($data['role'] === 'clinica') {
+            if (empty($data['clinica_id'])) {
+                return back()->withErrors(['clinica_id' => 'Debe seleccionar una clínica para usuarios con rol Clínica.'])->withInput();
+            }
+            if (empty($data['tipo_usuario_clinica'])) {
+                return back()->withErrors(['tipo_usuario_clinica' => 'Debe seleccionar el tipo de usuario dentro de la clínica.'])->withInput();
+            }
+        } else {
+            $data['clinica_id']           = null;
+            $data['tipo_usuario_clinica'] = null;
+        }
+
+        // BEFORE (campos relevantes)
+        $before = $user->only(['name', 'email', 'is_active', 'clinica_id', 'tipo_usuario_clinica']);
+        $beforeRoles = $user->getRoleNames()->values()->all();
+
+        // Aplicar cambios
+        $user->name  = $data['name'];
+        $user->email = $data['email'];
+
+        $passwordChanged = !empty($data['password']);
+        if ($passwordChanged) {
+            $user->password = Hash::make($data['password']);
+        }
+
+        // Si el checkbox no vino, no tocar
+        if (array_key_exists('is_active', $data)) {
+            $user->is_active = (bool) $data['is_active'];
+        }
+
+        $user->clinica_id           = $data['clinica_id'];
+        $user->tipo_usuario_clinica = $data['tipo_usuario_clinica'];
+
+        // Guardar
+        $user->save();
+
+        // Roles (una sola vez)
+        $user->syncRoles([$data['role']]);
+        $afterRoles = $user->getRoleNames()->values()->all();
+
+        // AFTER
+        $user->refresh();
+        $after = $user->only(['name', 'email', 'is_active', 'clinica_id', 'tipo_usuario_clinica']);
+
+        // Armar “changes” limpio (sin exponer hash)
+        $changes = [];
+
+        foreach (['name', 'email', 'is_active', 'clinica_id', 'tipo_usuario_clinica'] as $k) {
+            if (($before[$k] ?? null) != ($after[$k] ?? null)) {
+                $changes[$k] = ['before' => $before[$k] ?? null, 'after' => $after[$k] ?? null];
+            }
+        }
+
+        if ($passwordChanged) {
+            $changes['password'] = ['before' => '(oculto)', 'after' => '(actualizado)'];
+        }
+
+        if ($beforeRoles !== $afterRoles) {
+            $changes['roles'] = ['before' => $beforeRoles, 'after' => $afterRoles];
+        }
+
+        // LOG si hubo cualquier cambio
+        if (!empty($changes)) {
+            Audit::log('usuarios', 'updated', 'Usuario actualizado', $user, [
+                'clinica_id' => $user->clinica_id,
+                'changes'    => $changes,
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.usuarios.index')
+            ->with('success', 'Usuario actualizado correctamente.');
     }
-
-    return redirect()
-        ->route('admin.usuarios.index')
-        ->with('success', 'Usuario actualizado correctamente.');
-}
-
-    
-
-
-
 
     public function destroy(User $usuario)
     {
         $before = (bool) $usuario->is_active;
-    
+
         $usuario->is_active = false;
         $usuario->save();
-    
+
         Audit::log('usuarios', 'disabled', 'Usuario desactivado', $usuario, [
             'before_is_active' => $before,
             'after_is_active'  => (bool) $usuario->is_active,
         ]);
-    
+
         return redirect()
             ->route('admin.usuarios.index')
             ->with('success', 'Usuario desactivado correctamente.');
     }
-    
 
     public function toggleStatus(User $usuario)
-{
-    $before = (bool) $usuario->is_active;
+    {
+        $before = (bool) $usuario->is_active;
 
-    $usuario->is_active = ! $usuario->is_active;
-    $usuario->save();
+        $usuario->is_active = ! $usuario->is_active;
+        $usuario->save();
 
-    Audit::log('usuarios', 'status_toggled', 'Estado del usuario actualizado', $usuario, [
-        'before_is_active' => $before,
-        'after_is_active'  => (bool) $usuario->is_active,
-    ]);
+        Audit::log('usuarios', 'status_toggled', 'Estado del usuario actualizado', $usuario, [
+            'before_is_active' => $before,
+            'after_is_active'  => (bool) $usuario->is_active,
+        ]);
 
-    return redirect()
-        ->route('admin.usuarios.index')
-        ->with('success', 'Estado del usuario actualizado.');
-}
-
+        return redirect()
+            ->route('admin.usuarios.index')
+            ->with('success', 'Estado del usuario actualizado.');
+    }
 }

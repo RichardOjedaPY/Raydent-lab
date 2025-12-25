@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\{PedidoLiquidacion, Clinica};
 use Illuminate\Http\Request;
+use App\Support\Audit;
 
 class LiquidacionController extends Controller
 {
@@ -39,6 +40,19 @@ class LiquidacionController extends Controller
 
         $liquidaciones = $q->latest('id')->paginate(20)->withQueryString();
         $clinicas = Clinica::orderBy('nombre')->get();
+
+        // 🧾 AUDIT: vio listado de pedidos liquidados (con filtros)
+        Audit::log('liquidaciones', 'view_list', 'Vio listado de pedidos liquidados', null, [
+            'clinica_id' => $r->filled('clinica_id') ? (int) $r->integer('clinica_id') : null,
+            'desde'      => $r->filled('desde') ? (string) $r->input('desde') : null,
+            'hasta'      => $r->filled('hasta') ? (string) $r->input('hasta') : null,
+            'codigo'     => $r->filled('codigo') ? trim((string) $r->input('codigo')) : null,
+            'saldo'      => $r->input('saldo') ?: null,
+
+            'page'       => (int) $liquidaciones->currentPage(),
+            'per_page'   => (int) $liquidaciones->perPage(),
+            'total'      => (int) $liquidaciones->total(),
+        ]);
 
         return view('admin.liquidaciones.pedidos_liquidados', compact('liquidaciones', 'clinicas'));
     }
