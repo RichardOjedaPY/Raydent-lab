@@ -1,6 +1,5 @@
 <?php
 
-
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
@@ -24,13 +23,40 @@ class EstadoCuentaController extends Controller
     {
         /**
          * ==========================================================
-         * 0) Detectar nombres reales de columnas (NO romper por FK distintos)
+         * 0) Seguridad / Multi-tenant (NO romper por URL manipulada)
          * ==========================================================
-         * Tu error venía de: "Unknown column 'pedido_liquidacion_id' ..."
-         * Eso indica que en tu tabla `pago_aplicaciones` el FK se llama distinto
-         * (ej: `liquidacion_id`, `pedido_liquidaciones_id`, etc.).
-         *
-         * Este controlador resuelve automáticamente los nombres correctos.
+         * - Clinica: SIEMPRE su clinica_id
+         * - Admin/Cajero: pueden ver todas o filtrar por clinica_id
+         */
+        $user     = $r->user();
+        $isAdmin  = $user?->hasRole('admin') ?? false;
+        $isCajero = $user?->hasRole('cajero') ?? false;
+        $isClinica = $user?->hasRole('clinica') ?? false;
+
+        $canChooseClinica = $isAdmin || $isCajero;
+
+        // Filtros base
+        $desde = $r->get('desde'); // YYYY-MM-DD
+        $hasta = $r->get('hasta'); // YYYY-MM-DD
+        $tab   = (string) $r->get('tab', 'pendientes'); // pendientes | pagados | pagos
+
+        // ✅ Soporte opcional para "Ver pagos" por fila de liquidación
+        $liquidacionId = (int) $r->get('liquidacion_id', 0);
+
+        // ✅ clinicaId efectivo (blindado)
+        if ($canChooseClinica) {
+            $clinicaId = (int) $r->get('clinica_id', 0); // 0 = Todas
+        } else {
+            $clinicaId = (int) ($user->clinica_id ?? 0);
+            if ($isClinica && $clinicaId <= 0) {
+                abort(403, 'Usuario clínica sin clínica asignada.');
+            }
+        }
+
+        /**
+         * ==========================================================
+         * 1) Detectar nombres reales de columnas (NO romper por FK distintos)
+         * ==========================================================
          */
         $paModel = new PagoAplicacion();
         $paTable = $paModel->getTable(); // normalmente: pago_aplicaciones
@@ -74,25 +100,21 @@ class EstadoCuentaController extends Controller
 
         /**
          * ==========================================================
-         * 1) Filtros
+         * 2) Clínicas para el selector
          * ==========================================================
+         * - Admin/Cajero: todas
+         * - Clinica: solo su clínica
          */
-        $clinicaId = (int) $r->get('clinica_id', 0);
-        $desde     = $r->get('desde'); // YYYY-MM-DD
-        $hasta     = $r->get('hasta'); // YYYY-MM-DD
-        $tab       = $r->get('tab', 'pendientes'); // pendientes | pagados | pagos
-
-        // Clínicas para el selector
         $clinicas = Clinica::query()
             ->where('is_active', true)
+            ->when(!$canChooseClinica && $clinicaId > 0, fn($q) => $q->where('id', $clinicaId))
             ->orderBy('nombre')
             ->get();
 
         /**
          * ==========================================================
-         * 2) Subquery: total aplicado por liquidación
+         * 3) Subquery: total aplicado por liquidación
          * ==========================================================
-         * SELECT <liq_fk>, SUM(<monto>) as aplicado_gs FROM pago_aplicaciones GROUP BY <liq_fk>
          */
         $aplicadoPorLiq = DB::table($paTable)
             ->select([
@@ -103,7 +125,7 @@ class EstadoCuentaController extends Controller
 
         /**
          * ==========================================================
-         * 3) Query base de liquidaciones (con aplicado + saldo)
+         * 4) Query base de liquidaciones (con aplicado + saldo)
          * ==========================================================
          */
         $liqQ = PedidoLiquidacion::query()
@@ -123,7 +145,7 @@ class EstadoCuentaController extends Controller
 
         /**
          * ==========================================================
-         * 4) Totales (resumen)
+         * 5) Totales (resumen)
          * ==========================================================
          */
         $totalLiquidado = (int) (clone $liqQ)->sum(DB::raw("pl.{$liqTotalCol}"));
@@ -132,7 +154,7 @@ class EstadoCuentaController extends Controller
 
         /**
          * ==========================================================
-         * 5) Listados: Pendientes / Pagados (drill-down por liquidación)
+         * 6) Listados: Pendientes / Pagados
          * ==========================================================
          */
         $liquidaciones = (clone $liqQ)
@@ -144,7 +166,7 @@ class EstadoCuentaController extends Controller
 
         /**
          * ==========================================================
-         * 6) Pagos + saldo a favor (pago a cuenta)
+         * 7) Pagos + saldo a favor
          * ==========================================================
          * saldo_a_favor = pago.total - SUM(aplicaciones)
          */
@@ -160,14 +182,23 @@ class EstadoCuentaController extends Controller
             ->leftJoinSub($aplicadoPorPago, 'ap2', function ($j) {
                 $j->on('ap2.pago_id', '=', 'p.id');
             })
+            // ✅ Filtro por clínica (si corresponde)
             ->when($clinicaId > 0, function ($q) use ($clinicaId, $paTable, $paPagoFk, $paLiqFk, $liqTable) {
-                // Pagos vinculados a la clínica por aplicaciones -> liquidaciones
                 $q->whereExists(function ($w) use ($clinicaId, $paTable, $paPagoFk, $paLiqFk, $liqTable) {
                     $w->select(DB::raw(1))
                         ->from("{$paTable} as pa")
                         ->join("{$liqTable} as pl", 'pl.id', '=', "pa.{$paLiqFk}")
                         ->whereColumn("pa.{$paPagoFk}", 'p.id')
                         ->where('pl.clinica_id', $clinicaId);
+                });
+            })
+            // ✅ Drill-down: si viene liquidacion_id, mostrar solo pagos aplicados a esa liquidación
+            ->when($liquidacionId > 0, function ($q) use ($liquidacionId, $paTable, $paPagoFk, $paLiqFk) {
+                $q->whereExists(function ($w) use ($liquidacionId, $paTable, $paPagoFk, $paLiqFk) {
+                    $w->select(DB::raw(1))
+                        ->from("{$paTable} as pa")
+                        ->whereColumn("pa.{$paPagoFk}", 'p.id')
+                        ->where("pa.{$paLiqFk}", $liquidacionId);
                 });
             })
             ->when($desde, fn($q) => $q->whereDate('p.created_at', '>=', $desde))
@@ -181,7 +212,9 @@ class EstadoCuentaController extends Controller
 
         $pagos = (clone $pagosQ)->paginate(20)->withQueryString();
 
-        $pagosACuenta = (int) (clone $pagosQ)->sum(DB::raw("GREATEST(0, (p.{$pagoTotalCol} - COALESCE(ap2.aplicado_gs,0)))"));
+        $pagosACuenta = (int) (clone $pagosQ)->sum(
+            DB::raw("GREATEST(0, (p.{$pagoTotalCol} - COALESCE(ap2.aplicado_gs,0)))")
+        );
 
         return view('admin.estado_cuenta.index', compact(
             'clinicas',
@@ -211,7 +244,6 @@ class EstadoCuentaController extends Controller
             }
         }
 
-        // Mensaje explícito para que lo veas al instante en caso de faltar columnas
         throw new \RuntimeException(
             "EstadoCuentaController: No se encontró columna para {$label} en la tabla '{$table}'. " .
             "Probé: " . implode(', ', $candidates)

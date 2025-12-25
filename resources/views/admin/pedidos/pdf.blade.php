@@ -1,4 +1,4 @@
- {{-- resources/views/admin/pedidos/pdf.blade.php --}}
+  {{-- resources/views/admin/pedidos/pdf.blade.php --}}
 @php
 use Carbon\Carbon;
 

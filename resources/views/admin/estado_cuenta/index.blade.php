@@ -7,16 +7,31 @@
 @php
   $fmt = fn($n) => number_format((int)$n, 0, ',', '.');
 
-  // Base query (sin paginación) para conservar filtros siempre
+  $user = auth()->user();
+  $isAdmin  = $user?->hasRole('admin') ?? false;
+  $isCajero = $user?->hasRole('cajero') ?? false;
+  $isClinica = $user?->hasRole('clinica') ?? false;
+
+  // ✅ Solo admin/cajero pueden seleccionar otra clínica o "Todas"
+  $canChooseClinica = $isAdmin || $isCajero;
+
+  // ✅ Blindaje: si es clínica, forzamos el query base con su clinica_id (para tabs/links)
+  $forcedClinicaId = (int)($user->clinica_id ?? 0);
   $qBase = request()->except('page');
 
-  // URLs de tabs (✅ usar array_merge para reemplazar tab)
+  if ($isClinica && $forcedClinicaId > 0) {
+      $qBase['clinica_id'] = $forcedClinicaId;   // pisa cualquier clinica_id que venga por URL
+  }
+
+  // URLs tabs (siempre conservan filtros)
   $urlPendientes = route('admin.estado_cuenta.index', array_merge($qBase, ['tab' => 'pendientes']));
   $urlPagados    = route('admin.estado_cuenta.index', array_merge($qBase, ['tab' => 'pagados']));
   $urlPagos      = route('admin.estado_cuenta.index', array_merge($qBase, ['tab' => 'pagos']));
 
-  // Botón superior "Ver pagos"
   $verPagosUrlTop = $urlPagos;
+
+  // Para mostrar el nombre de la clínica cuando es rol clinica
+  $clinicaNombreSolo = $isClinica ? ($clinicas->first()?->nombre ?? '—') : null;
 @endphp
 
 <style>
@@ -50,13 +65,8 @@
     background: #f8fafc;
     border-bottom: 1px solid rgba(148,163,184,.35);
   }
-  .table td{
-    vertical-align: middle;
-  }
-  .money{
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-  }
+  .table td{ vertical-align: middle; }
+  .money{ font-variant-numeric: tabular-nums; font-weight: 700; }
   .muted{ color:#6b7280; }
   .actions .btn{ margin-left: .35rem; }
 </style>
@@ -65,14 +75,22 @@
 <div class="card card-soft mb-3 filters">
   <div class="card-body">
     <form method="get" class="row g-2 align-items-end">
+      {{-- ✅ CLÍNICA: NO puede elegir otra clínica --}}
       <div class="col-md-5">
         <label class="small text-muted mb-1">Clínica</label>
-        <select name="clinica_id" class="form-control">
-          <option value="0">Todas</option>
-          @foreach($clinicas as $c)
-            <option value="{{ $c->id }}" @selected((int)$clinicaId === (int)$c->id)>{{ $c->nombre }}</option>
-          @endforeach
-        </select>
+
+        @if($canChooseClinica)
+          <select name="clinica_id" class="form-control">
+            <option value="0">Todas</option>
+            @foreach($clinicas as $c)
+              <option value="{{ $c->id }}" @selected((int)$clinicaId === (int)$c->id)>{{ $c->nombre }}</option>
+            @endforeach
+          </select>
+        @else
+          {{-- Solo lectura + hidden --}}
+          <input type="text" class="form-control" value="{{ $clinicaNombreSolo }}" readonly>
+          <input type="hidden" name="clinica_id" value="{{ (int)($user->clinica_id ?? 0) }}">
+        @endif
       </div>
 
       <div class="col-md-2">
@@ -90,7 +108,8 @@
         <button class="btn btn-primary btn-round w-100">
           <i class="fas fa-search mr-1"></i> Filtrar
         </button>
-        <a class="btn btn-secondary btn-round" href="{{ route('admin.estado_cuenta.index') }}">
+        <a class="btn btn-secondary btn-round"
+           href="{{ route('admin.estado_cuenta.index', $isClinica ? ['clinica_id' => (int)($user->clinica_id ?? 0)] : []) }}">
           Limpiar
         </a>
       </div>
@@ -230,8 +249,6 @@
           <tbody>
             @forelse($liquidaciones as $l)
               @php
-                // URL "Ver pagos" debe ir al TAB pagos conservando filtros,
-                // y opcionalmente enviamos liquidacion_id para que el controlador pueda filtrar pagos
                 $verPagosPorFila = route('admin.estado_cuenta.index', array_merge($qBase, [
                   'tab' => 'pagos',
                   'liquidacion_id' => $l->id,

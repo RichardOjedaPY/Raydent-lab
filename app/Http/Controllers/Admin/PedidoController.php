@@ -19,6 +19,7 @@ use App\Support\Audit;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use App\Support\Sequence;
+use Illuminate\Support\Facades\Schema;
 
 
 
@@ -36,14 +37,46 @@ class PedidoController extends Controller
     {
         $user    = $request->user();
         $isAdmin = $user->hasRole('admin');
-
+    
         $search = trim((string) $request->get('search', ''));
         $estado = trim((string) $request->get('estado', ''));
-
+    
         // 🔒 Multi-tenant: clínica solo ve su clínica
-        $clinicaScopeId = $isAdmin ? (int) ($request->get('clinica_id') ?? 0) : (int) ($user->clinica_id ?? 0);
-
-        $pedidos = Pedido::with(['clinica', 'paciente'])
+        $clinicaScopeId = $isAdmin
+            ? (int) ($request->get('clinica_id') ?? 0)
+            : (int) ($user->clinica_id ?? 0);
+    
+        // ✅ Detectar tabla real de liquidaciones
+        $liqTableCandidates = [
+            'liquidaciones',
+            'pedido_liquidaciones',
+            'liquidaciones_pedidos',
+            'liquidacion_pedidos',
+            'pedido_liquidacion',
+            'pedido_liquidacion_detalles',
+        ];
+    
+        $liqTable = collect($liqTableCandidates)->first(fn($t) => Schema::hasTable($t));
+    
+        // ✅ Helper: devuelve el primer nombre de columna que exista en la tabla
+        $pickCol = function (?string $table, array $candidates): ?string {
+            if (!$table) return null;
+            foreach ($candidates as $col) {
+                if (Schema::hasColumn($table, $col)) return $col;
+            }
+            return null;
+        };
+    
+        // ✅ Columnas “equivalentes”
+        $colId        = $pickCol($liqTable, ['id']);
+        $colPedidoId  = $pickCol($liqTable, ['pedido_id']);
+        $colSaldo     = $pickCol($liqTable, ['saldo_gs','saldo','saldo_total','saldo_pendiente','saldo_monto']);
+        $colTotal     = $pickCol($liqTable, ['total_gs','total','monto_total','total_monto']);
+        $colAplicado  = $pickCol($liqTable, ['aplicado_gs','aplicado','pagado_gs','pagado','monto_aplicado','monto_pagado']);
+        $colFechaLiq  = $pickCol($liqTable, ['liquidado_at','fecha_liquidacion','liquidado_en','fecha','created_at','updated_at']);
+    
+        $pedidosQuery = Pedido::query()
+            ->with(['clinica', 'paciente'])
             ->when($clinicaScopeId > 0, fn($q) => $q->where('clinica_id', $clinicaScopeId))
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($w) use ($search) {
@@ -51,45 +84,133 @@ class PedidoController extends Controller
                         ->orWhere('codigo_pedido', 'like', "%{$search}%")
                         ->orWhereHas('paciente', function ($p) use ($search) {
                             $p->where('nombre', 'like', "%{$search}%")
-                                ->orWhere('apellido', 'like', "%{$search}%");
+                              ->orWhere('apellido', 'like', "%{$search}%");
                         });
                 });
             })
             ->when($estado !== '', fn($q) => $q->where('estado', $estado))
-            ->latest('id')
-            ->paginate(20)
-            ->withQueryString();
-
-        // --------- VARIABLES PARA EL FORM (MODAL) ---------
+            ->latest('id');
+    
+        // ✅ Agregar subqueries SOLO si existe tabla y columna pedido_id
+        if ($liqTable && $colPedidoId) {
+    
+            $orderCol = $colId ? "{$liqTable}.{$colId}" : "{$liqTable}.id";
+    
+            $liqBase = DB::table($liqTable)
+                ->whereColumn("{$liqTable}.{$colPedidoId}", 'pedidos.id')
+                ->orderByDesc($orderCol);
+    
+            // id
+            if ($colId) {
+                $pedidosQuery->addSelect([
+                    'liq_id' => (clone $liqBase)->select("{$liqTable}.{$colId}")->limit(1),
+                ]);
+            } else {
+                $pedidosQuery->addSelect([DB::raw('NULL as liq_id')]);
+            }
+    
+            // saldo
+            if ($colSaldo) {
+                $pedidosQuery->addSelect([
+                    'liq_saldo_gs' => (clone $liqBase)->select("{$liqTable}.{$colSaldo}")->limit(1),
+                ]);
+            } else {
+                $pedidosQuery->addSelect([DB::raw('NULL as liq_saldo_gs')]);
+            }
+    
+            // total
+            if ($colTotal) {
+                $pedidosQuery->addSelect([
+                    'liq_total_gs' => (clone $liqBase)->select("{$liqTable}.{$colTotal}")->limit(1),
+                ]);
+            } else {
+                $pedidosQuery->addSelect([DB::raw('NULL as liq_total_gs')]);
+            }
+    
+            // aplicado
+            if ($colAplicado) {
+                $pedidosQuery->addSelect([
+                    'liq_aplicado_gs' => (clone $liqBase)->select("{$liqTable}.{$colAplicado}")->limit(1),
+                ]);
+            } else {
+                $pedidosQuery->addSelect([DB::raw('NULL as liq_aplicado_gs')]);
+            }
+    
+            // fecha
+            if ($colFechaLiq) {
+                $pedidosQuery->addSelect([
+                    'liq_liquidado_at' => (clone $liqBase)->select("{$liqTable}.{$colFechaLiq}")->limit(1),
+                ]);
+            } else {
+                $pedidosQuery->addSelect([DB::raw('NULL as liq_liquidado_at')]);
+            }
+    
+            // ✅ NUEVO: saldo calculado (arreglado SIN usar ?? dentro del string)
+            if ($colTotal) {
+    
+                // armamos la columna aplicado (o 0) antes (clave para evitar el error)
+                $apColExpr = $colAplicado ? "{$liqTable}.{$colAplicado}" : "0";
+    
+                if ($colSaldo) {
+                    $pedidosQuery->addSelect([
+                        'liq_saldo_calc_gs' => (clone $liqBase)->selectRaw("
+                            COALESCE({$liqTable}.{$colSaldo},
+                                     GREATEST(0, ({$liqTable}.{$colTotal} - COALESCE({$apColExpr},0)))
+                            )
+                        ")->limit(1),
+                    ]);
+                } else {
+                    $pedidosQuery->addSelect([
+                        'liq_saldo_calc_gs' => (clone $liqBase)->selectRaw("
+                            GREATEST(0, ({$liqTable}.{$colTotal} - COALESCE({$apColExpr},0)))
+                        ")->limit(1),
+                    ]);
+                }
+            } else {
+                $pedidosQuery->addSelect([DB::raw('NULL as liq_saldo_calc_gs')]);
+            }
+    
+        } else {
+            $pedidosQuery->addSelect([
+                DB::raw('NULL as liq_id'),
+                DB::raw('NULL as liq_saldo_gs'),
+                DB::raw('NULL as liq_total_gs'),
+                DB::raw('NULL as liq_aplicado_gs'),
+                DB::raw('NULL as liq_liquidado_at'),
+                DB::raw('NULL as liq_saldo_calc_gs'),
+            ]);
+        }
+    
+        $pedidos = $pedidosQuery->paginate(20)->withQueryString();
+    
+        // (el resto de tu método sigue igual)
         $pedido = new Pedido();
-
+    
         $clinicas = $isAdmin
             ? Clinica::where('is_active', true)->orderBy('nombre')->get()
             : Clinica::where('id', $user->clinica_id)->get();
-
+    
         $pacientes = Paciente::with('clinica')
             ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
             ->orderBy('apellido')->orderBy('nombre')
             ->get();
-
-        // Consultas (para asociar pedido a consulta)
+    
         $consultas = Consulta::query()
             ->select('id', 'clinica_id', 'paciente_id', 'fecha_hora', 'motivo_consulta')
             ->when(! $isAdmin, fn($q) => $q->where('clinica_id', $user->clinica_id))
             ->orderByDesc('fecha_hora')
             ->limit(400)
             ->get();
-
+    
         [$fotosTipos, $cefalometriasTipos, $documentaciones] = $this->getCatalogos();
-
-        $fotosSeleccionadas             = [];
-        $cefalometriasSeleccionadas     = [];
-        $piezasPeriapicalSeleccionadas  = [];
+    
+        $fotosSeleccionadas            = [];
+        $cefalometriasSeleccionadas    = [];
+        $piezasPeriapicalSeleccionadas = [];
         $piezasTomografiaSeleccionadas = [];
-        $codigoPedidoSugerido = Pedido::sugerirCodigoPedido();
-
-        $modo = 'create';
-
+        $codigoPedidoSugerido          = Pedido::sugerirCodigoPedido();
+        $modo                          = 'create';
+    
         return view('admin.pedidos.index', compact(
             'pedidos',
             'search',
@@ -111,6 +232,11 @@ class PedidoController extends Controller
             'clinicaScopeId'
         ));
     }
+    
+
+    
+    
+
 
 
     public function create(Request $request)
@@ -635,67 +761,67 @@ class PedidoController extends Controller
     }
 
 
-   // app/Http/Controllers/Admin/PedidoController.php
+    // app/Http/Controllers/Admin/PedidoController.php
 
-public function pdf(Pedido $pedido)
-{
-    $user = auth()->user();
+    public function pdf(Pedido $pedido)
+    {
+        $user = auth()->user();
 
-    // ✅ Acceso:
-    // - admin: todo
-    // - tecnico: todo
-    // - cajero: todo (necesita exportar para comprobantes/gestión)
-    // - clinica: solo su clínica
-    // - otros: 403
-    $isAdmin   = $user->hasRole('admin');
-    $isTecnico = $user->hasRole('tecnico');
-    $isCajero  = $user->hasRole('cajero');
-    $isClinica = $user->hasRole('clinica');
+        // ✅ Acceso:
+        // - admin: todo
+        // - tecnico: todo
+        // - cajero: todo (necesita exportar para comprobantes/gestión)
+        // - clinica: solo su clínica
+        // - otros: 403
+        $isAdmin   = $user->hasRole('admin');
+        $isTecnico = $user->hasRole('tecnico');
+        $isCajero  = $user->hasRole('cajero');
+        $isClinica = $user->hasRole('clinica');
 
-    if (! $isAdmin && ! $isTecnico && ! $isCajero) {
-        if ($isClinica) {
-            if ((int) $pedido->clinica_id !== (int) $user->clinica_id) {
+        if (! $isAdmin && ! $isTecnico && ! $isCajero) {
+            if ($isClinica) {
+                if ((int) $pedido->clinica_id !== (int) $user->clinica_id) {
+                    abort(403);
+                }
+            } else {
                 abort(403);
             }
-        } else {
-            abort(403);
         }
+
+        $pedido->load(['clinica', 'paciente']);
+
+        // Separar piezas para el PDF
+        $periapical = PedidoPieza::where('pedido_id', $pedido->id)
+            ->where('tipo', 'periapical')
+            ->pluck('pieza_codigo')
+            ->map(fn($v) => (string) $v)
+            ->all();
+
+        $tomografia = PedidoPieza::where('pedido_id', $pedido->id)
+            ->where('tipo', 'tomografia')
+            ->pluck('pieza_codigo')
+            ->map(fn($v) => (string) $v)
+            ->all();
+
+        $fotosSeleccionadas = PedidoFoto::where('pedido_id', $pedido->id)->pluck('tipo')->all();
+        $cefalometriasSeleccionadas = PedidoCefalometria::where('pedido_id', $pedido->id)->pluck('tipo')->all();
+
+        $pdf = Pdf::loadView('admin.pedidos.pdf', [
+            'pedido'                     => $pedido,
+            'periapical'                 => $periapical,
+            'tomografia'                 => $tomografia,
+            'fotosSeleccionadas'         => $fotosSeleccionadas,
+            'cefalometriasSeleccionadas' => $cefalometriasSeleccionadas,
+        ])->setPaper('a4');
+
+        $nombre = 'pedido-' . ($pedido->codigo_pedido ?? $pedido->id) . '.pdf';
+
+        Audit::log('pedidos', 'pdf', 'Pedido exportado a PDF', $pedido, [
+            'codigo_pedido' => $pedido->codigo_pedido ?? $pedido->id,
+        ]);
+
+        return $pdf->stream($nombre);
     }
-
-    $pedido->load(['clinica', 'paciente']);
-
-    // Separar piezas para el PDF
-    $periapical = PedidoPieza::where('pedido_id', $pedido->id)
-        ->where('tipo', 'periapical')
-        ->pluck('pieza_codigo')
-        ->map(fn($v) => (string) $v)
-        ->all();
-
-    $tomografia = PedidoPieza::where('pedido_id', $pedido->id)
-        ->where('tipo', 'tomografia')
-        ->pluck('pieza_codigo')
-        ->map(fn($v) => (string) $v)
-        ->all();
-
-    $fotosSeleccionadas = PedidoFoto::where('pedido_id', $pedido->id)->pluck('tipo')->all();
-    $cefalometriasSeleccionadas = PedidoCefalometria::where('pedido_id', $pedido->id)->pluck('tipo')->all();
-
-    $pdf = Pdf::loadView('admin.pedidos.pdf', [
-        'pedido'                     => $pedido,
-        'periapical'                 => $periapical,
-        'tomografia'                 => $tomografia,
-        'fotosSeleccionadas'         => $fotosSeleccionadas,
-        'cefalometriasSeleccionadas' => $cefalometriasSeleccionadas,
-    ])->setPaper('a4');
-
-    $nombre = 'pedido-' . ($pedido->codigo_pedido ?? $pedido->id) . '.pdf';
-
-    Audit::log('pedidos', 'pdf', 'Pedido exportado a PDF', $pedido, [
-        'codigo_pedido' => $pedido->codigo_pedido ?? $pedido->id,
-    ]);
-
-    return $pdf->stream($nombre);
-}
 
 
 

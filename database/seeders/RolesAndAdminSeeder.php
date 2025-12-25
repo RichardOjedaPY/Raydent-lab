@@ -129,24 +129,37 @@ class RolesAndAdminSeeder extends Seeder
 
         // 5.3 CLÍNICA: puede gestionar lo propio (según tu sistema)
         $clinicaPerms = [
+            // Clínicas / pacientes / consultas (propio)
             'pacientes.view',
             'pacientes.show',
             'pacientes.create',
             'pacientes.update',
+        
             'consultas.view',
             'consultas.show',
             'consultas.create',
             'consultas.update',
+        
+            // Pedidos (propio)
             'pedidos.view',
             'pedidos.show',
             'pedidos.create',
             'pedidos.update',
             'pedidos.pdf',
-
+        
+            // Resultados (propio)
             'resultados.view',
             'resultados.download',
             'resultados.fotos_pdf',
+        
+            // ✅ Estado de cuenta + pagos (para ver historial y detalle)
+            'estado_cuenta.view',
+            'pagos.view',
+            'pagos.show',
+            'pagos.pdf',  
         ];
+        $clinica->syncPermissions($clinicaPerms);
+        
         $clinica->syncPermissions($clinicaPerms);
 
         // 5.4 CAJERO: cobra (pagos) y necesita ver pedido (show) para revisar antes de cobrar / imprimir

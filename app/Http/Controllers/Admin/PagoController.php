@@ -98,63 +98,146 @@ class PagoController extends Controller
 
 
     public function show(Pago $pago)
-{
-    $pago->load([
-        'clinica',
-        'user',
-        'aplicaciones.liquidacion.pedido.paciente',
-        'aplicaciones.liquidacion.pedido.clinica',
-    ]);
-
-    // Contexto: liquidación principal (en tu caso "ver pago" viene desde una liquidación/pedido)
-    $liqId = $pago->aplicaciones->pluck('liquidacion_id')->filter()->first();
-
-    $pagosRelacionados = collect([$pago]);
-    $liq = null;
-    $pedido = null;
-
-    if ($liqId) {
-        $liq = PedidoLiquidacion::query()
-            ->with(['pedido.clinica', 'pedido.paciente'])
-            ->find($liqId);
-
-        $pedido = $liq?->pedido;
-
-        // Historial: todos los pagos que tengan aplicaciones para esta liquidación
-        $pagosRelacionados = Pago::query()
-            ->whereHas('aplicaciones', function ($q) use ($liqId) {
-                $q->where('liquidacion_id', $liqId);
-            })
-            ->with([
-                'clinica',
-                'user',
-                // Solo las aplicaciones de esta liquidación (para que el show sea "historial por pedido")
-                'aplicaciones' => function ($q) use ($liqId) {
-                    $q->where('liquidacion_id', $liqId)
-                      ->with(['liquidacion.pedido']);
-                },
-            ])
-            // sum aplicado por pago (solo de esta liquidación)
-            ->withSum(['aplicaciones as aplicado_gs_sum' => function ($q) use ($liqId) {
-                $q->where('liquidacion_id', $liqId);
-            }], 'monto_gs')
-            ->orderByDesc('id')
-            ->get();
+    {
+        $user = auth()->user();
+    
+        $isAdmin   = $user->hasRole('admin');
+        $isCajero  = $user->hasRole('cajero');
+        $isClinica = $user->hasRole('clinica');
+    
+        $pago->load([
+            'clinica',
+            'user',
+            'aplicaciones.liquidacion.pedido.paciente',
+            'aplicaciones.liquidacion.pedido.clinica',
+        ]);
+    
+        // ------------------------------------------------------------
+        // 1) Resolver ID de liquidación + FK real (liquidacion_id / pedido_liquidacion_id)
+        // ------------------------------------------------------------
+        $ap0 = $pago->aplicaciones->first();
+    
+        $liqFk = null;
+        $liqId = null;
+    
+        if ($ap0) {
+            // Si la relación liquidacion ya está cargada, esto es lo más confiable
+            if ($ap0->relationLoaded('liquidacion') && $ap0->liquidacion) {
+                $liqId = (int) $ap0->liquidacion->id;
+            }
+    
+            // Si no, detectamos por nombre de columna existente en el modelo
+            foreach (['liquidacion_id', 'pedido_liquidacion_id', 'pedido_liquidaciones_id'] as $cand) {
+                if (!is_null($ap0->{$cand} ?? null)) {
+                    $liqFk = $cand;
+                    $liqId = $liqId ?: (int) $ap0->{$cand};
+                    break;
+                }
+            }
+        }
+    
+        // ------------------------------------------------------------
+        // 2) Cargar liquidación/pedido (contexto)
+        // ------------------------------------------------------------
+        $liq = null;
+        $pedido = null;
+    
+        if ($liqId) {
+            $liq = PedidoLiquidacion::query()
+                ->with(['pedido.clinica', 'pedido.paciente'])
+                ->find($liqId);
+    
+            $pedido = $liq?->pedido;
+        }
+    
+        // ------------------------------------------------------------
+        // 3) 🔒 Multi-tenant: clínica solo puede ver pagos de su clínica
+        // ------------------------------------------------------------
+        if ($isClinica && !$isAdmin && !$isCajero) {
+            $userClinicaId = (int) ($user->clinica_id ?? 0);
+            if ($userClinicaId <= 0) {
+                abort(403, 'Usuario clínica sin clínica asignada.');
+            }
+    
+            // Determinar clínica del pago (por liquidación/pedido, que es lo correcto)
+            $pagoClinicaId = null;
+    
+            if ($liq && (int)($liq->clinica_id ?? 0) > 0) {
+                $pagoClinicaId = (int) $liq->clinica_id;
+            } elseif ($pedido && (int)($pedido->clinica_id ?? 0) > 0) {
+                $pagoClinicaId = (int) $pedido->clinica_id;
+            } else {
+                // fallback si tu tabla pagos tiene clinica_id
+                $pagoClinicaId = (int) ($pago->clinica_id ?? 0);
+            }
+    
+            // Si no se puede determinar, denegar (evita fuga)
+            if ($pagoClinicaId <= 0) {
+                abort(403, 'No se pudo determinar la clínica de este pago.');
+            }
+    
+            // Si no coincide, denegar
+            if ($pagoClinicaId !== $userClinicaId) {
+                abort(403, 'Acceso denegado: pago no pertenece a su clínica.');
+            }
+    
+            // Extra: si el pago tiene aplicaciones a varias clínicas (raro), también lo bloqueamos
+            $clinicasInvolucradas = $pago->aplicaciones
+                ->map(function ($ap) {
+                    return (int) optional(optional($ap->liquidacion)->pedido)->clinica_id
+                        ?: (int) optional($ap->liquidacion)->clinica_id
+                        ?: 0;
+                })
+                ->filter()
+                ->unique()
+                ->values();
+    
+            if ($clinicasInvolucradas->count() > 1) {
+                abort(403, 'Acceso denegado: pago con aplicaciones a múltiples clínicas.');
+            }
+        }
+    
+        // ------------------------------------------------------------
+        // 4) Historial: pagos relacionados a la liquidación (si existe)
+        // ------------------------------------------------------------
+        $pagosRelacionados = collect([$pago]);
+    
+        if ($liqId && $liqFk) {
+            $pagosRelacionados = Pago::query()
+                ->whereHas('aplicaciones', function ($q) use ($liqFk, $liqId) {
+                    $q->where($liqFk, $liqId);
+                })
+                ->with([
+                    'clinica',
+                    'user',
+                    'aplicaciones' => function ($q) use ($liqFk, $liqId) {
+                        $q->where($liqFk, $liqId)
+                          ->with(['liquidacion.pedido']);
+                    },
+                ])
+                ->withSum(['aplicaciones as aplicado_gs_sum' => function ($q) use ($liqFk, $liqId) {
+                    $q->where($liqFk, $liqId);
+                }], 'monto_gs')
+                ->orderByDesc('id')
+                ->get();
+        }
+    
+        // ------------------------------------------------------------
+        // 5) Totales
+        // ------------------------------------------------------------
+        $aplicadoGs = (int) $pago->aplicaciones->sum('monto_gs');
+        $aCuentaGs  = max(0, (int)($pago->monto_gs ?? 0) - $aplicadoGs);
+    
+        return view('admin.pagos.show', compact(
+            'pago',
+            'aplicadoGs',
+            'aCuentaGs',
+            'pagosRelacionados',
+            'liq',
+            'pedido'
+        ));
     }
-
-    // Estos ya los estabas usando
-    $aplicadoGs = (int) $pago->aplicaciones->sum('monto_gs');
-    $aCuentaGs  = max(0, (int)$pago->monto_gs - $aplicadoGs);
-
-    return view('admin.pagos.show', compact(
-        'pago',
-        'aplicadoGs',
-        'aCuentaGs',
-        'pagosRelacionados',
-        'liq',
-        'pedido'
-    ));
-}
+    
 
 
     public function pdfRecibo(Pago $pago)
