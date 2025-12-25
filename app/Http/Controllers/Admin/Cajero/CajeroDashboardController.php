@@ -23,28 +23,34 @@ class CajeroDashboardController extends Controller
         // ==========================================================
         // 0) Detectar columnas reales (Pagos / PagoAplicaciones / Liquidaciones)
         // ==========================================================
-        $pagoTable      = (new Pago())->getTable();
-        $pagoMontoCol   = $this->resolveColumn($pagoTable, ['monto_gs', 'total_gs', 'monto', 'importe_gs'], 'monto pago');
-        $pagoFechaCol   = $this->resolveColumn($pagoTable, ['fecha', 'created_at'], 'fecha pago');
+        $pagoTable = (new Pago())->getTable(); // pagos
+        $pagoMontoCol  = $this->resolveColumn($pagoTable, ['monto_gs', 'total_gs', 'monto', 'importe_gs'], 'monto pago');
+        $pagoFechaCol  = $this->resolveColumn($pagoTable, ['fecha', 'created_at'], 'fecha pago');
         $pagoClinicaCol = Schema::hasColumn($pagoTable, 'clinica_id') ? 'clinica_id' : null;
 
-        $paTable    = (new PagoAplicacion())->getTable();
+        $paTable = (new PagoAplicacion())->getTable(); // pago_aplicaciones
         $paPagoFk   = $this->resolveColumn($paTable, ['pago_id', 'pagos_id'], 'FK pago');
         $paMontoCol = $this->resolveColumn($paTable, ['monto_gs', 'monto', 'importe_gs'], 'monto aplicación');
 
-        $liqTable      = (new PedidoLiquidacion())->getTable();
-        $liqPedidoCol  = $this->resolveColumn($liqTable, ['pedido_id', 'pedidos_id'], 'pedido_id en liquidación');
-        $liqTotalCol   = $this->resolveColumn($liqTable, ['total_gs', 'total', 'monto_total'], 'total liquidación');
-        $liqPagadoCol  = $this->resolveColumn($liqTable, ['pagado_gs', 'aplicado_gs', 'pagado', 'aplicado'], 'pagado/aplicado liquidación');
-        $liqEstadoCol  = Schema::hasColumn($liqTable, 'estado') ? 'estado' : null;
+        // FK a liquidación (si existe en pago_aplicaciones)
+        $paLiqFk = null;
+        foreach (['pedido_liquidacion_id', 'liquidacion_id', 'pedido_liquidaciones_id'] as $c) {
+            if (Schema::hasColumn($paTable, $c)) { $paLiqFk = $c; break; }
+        }
+
+        // Liquidaciones
+        $liqTable = (new PedidoLiquidacion())->getTable(); // pedido_liquidaciones
+        $liqIdCol     = Schema::hasColumn($liqTable, 'id') ? 'id' : 'id';
+        $liqPedidoCol = $this->resolveColumn($liqTable, ['pedido_id'], 'FK pedido en liquidación');
+        $liqTotalCol  = $this->resolveColumn($liqTable, ['total_gs', 'total', 'monto_total', 'total_monto'], 'total liquidación');
+        $liqEstadoCol = Schema::hasColumn($liqTable, 'estado') ? 'estado' : null;
         $liqClinicaCol = Schema::hasColumn($liqTable, 'clinica_id') ? 'clinica_id' : null;
 
-        // IMPORTANTE: no usar ?? dentro del string interpolado
-        $liqPkCol = Schema::hasColumn($liqTable, 'id') ? 'id' : $liqPedidoCol; // fallback seguro
-
-        $pedidoTable      = (new Pedido())->getTable();
-        $pedidoClinicaCol = Schema::hasColumn($pedidoTable, 'clinica_id') ? 'clinica_id' : null;
-        $pedidoEstadoCol  = Schema::hasColumn($pedidoTable, 'estado') ? 'estado' : null;
+        // Columna “pagado” si existe (opcional). Si no, lo calculamos desde pago_aplicaciones por liquidación.
+        $liqPagadoCol = null;
+        foreach (['pagado_gs', 'aplicado_gs', 'pagado', 'aplicado', 'monto_pagado', 'monto_aplicado'] as $c) {
+            if (Schema::hasColumn($liqTable, $c)) { $liqPagadoCol = $c; break; }
+        }
 
         // ==========================================================
         // 1) KPIs: Pagos hoy / mes
@@ -66,51 +72,67 @@ class CajeroDashboardController extends Controller
 
         // ==========================================================
         // 2) Pendiente total (liquidaciones confirmadas con saldo > 0)
+        // pendiente = SUM(GREATEST(0, total - pagado))
+        // pagado: preferimos SUM(pago_aplicaciones) por liquidación si hay FK, sino columna en liquidación, sino 0
         // ==========================================================
-        $qLiq = PedidoLiquidacion::query()
-            ->from($liqTable)
-            ->when($liqEstadoCol, fn ($q) => $q->where($liqEstadoCol, 'confirmada'))
+        $pagadoPorLiq = null;
+        if ($paLiqFk) {
+            $pagadoPorLiq = DB::table($paTable)
+                ->selectRaw("{$paLiqFk} as liq_id, SUM({$paMontoCol}) as pagado_gs")
+                ->groupBy($paLiqFk);
+        }
+
+        $liqBase = DB::table("{$liqTable} as pl")
+            ->when($liqEstadoCol, function ($q) use ($liqEstadoCol) {
+                // Ajustá si tu estado válido para liquidaciones es otro
+                $q->where("pl.{$liqEstadoCol}", 'confirmada');
+            })
             ->when($clinicaId && $liqClinicaCol, function ($q) use ($clinicaId, $liqClinicaCol) {
-                $q->where($liqClinicaCol, $clinicaId);
+                $q->where("pl.{$liqClinicaCol}", $clinicaId);
             });
 
-        $pendientePagoTotal = (int) (
-            (clone $qLiq)
-                ->selectRaw("SUM(GREATEST(0, ({$liqTotalCol} - COALESCE({$liqPagadoCol},0)))) as pendiente")
-                ->value('pendiente') ?? 0
-        );
+        if ($pagadoPorLiq) {
+            $liqBase->leftJoinSub($pagadoPorLiq, 'pl_pagado', function ($j) {
+                $j->on('pl_pagado.liq_id', '=', 'pl.id');
+            });
+        }
 
-        $liqPendientesCount = (int) (clone $qLiq)
-            ->whereRaw("GREATEST(0, ({$liqTotalCol} - COALESCE({$liqPagadoCol},0))) > 0")
+        $pagadoExpr = '0';
+        if ($liqPagadoCol) {
+            $pagadoExpr = "COALESCE(pl.{$liqPagadoCol},0)";
+        } elseif ($pagadoPorLiq) {
+            $pagadoExpr = "COALESCE(pl_pagado.pagado_gs,0)";
+        }
+
+        $pendientePagoTotal = (int) (clone $liqBase)
+            ->selectRaw("SUM(GREATEST(0, (pl.{$liqTotalCol} - {$pagadoExpr}))) as pendiente")
+            ->value('pendiente');
+
+        $liqPendientesCount = (int) (clone $liqBase)
+            ->whereRaw("GREATEST(0, (pl.{$liqTotalCol} - {$pagadoExpr})) > 0")
             ->count();
 
         // ==========================================================
-        // 3) Pagos a cuenta (saldo a favor) (evita error SQL 1140)
+        // 3) Pagos a cuenta (saldo a favor)
+        // saldo_a_favor = pago.monto - SUM(aplicaciones por pago_id)
+        // IMPORTANTE: hacerlo en una query "solo aggregate" para evitar error de GROUP.
         // ==========================================================
         $aplicadoPorPago = DB::table($paTable)
             ->selectRaw("{$paPagoFk} as pago_id, SUM({$paMontoCol}) as aplicado_gs")
             ->groupBy($paPagoFk);
 
-        $qPagosSaldoBase = DB::table("{$pagoTable} as p")
+        $pagosACuentaTotal = (int) DB::table("{$pagoTable} as p")
             ->leftJoinSub($aplicadoPorPago, 'ap', function ($j) {
                 $j->on('ap.pago_id', '=', 'p.id');
             })
             ->when($clinicaId && $pagoClinicaCol, function ($q) use ($clinicaId, $pagoClinicaCol) {
                 $q->where("p.{$pagoClinicaCol}", $clinicaId);
-            });
-
-        $pagosACuentaTotal = (int) (
-            (clone $qPagosSaldoBase)
-                ->selectRaw("SUM(GREATEST(0, (p.{$pagoMontoCol} - COALESCE(ap.aplicado_gs,0)))) as total")
-                ->value('total') ?? 0
-        );
-
-        $pagosACuentaCount = (int) (clone $qPagosSaldoBase)
-            ->whereRaw("GREATEST(0, (p.{$pagoMontoCol} - COALESCE(ap.aplicado_gs,0))) > 0")
-            ->count();
+            })
+            ->selectRaw("SUM(GREATEST(0, (p.{$pagoMontoCol} - COALESCE(ap.aplicado_gs,0)))) as total")
+            ->value('total');
 
         // ==========================================================
-        // 4) Pagos últimos 14 días (serie para gráfico)
+        // 4) Serie Pagos últimos 14 días (para gráfico)
         // ==========================================================
         $desde14 = now()->subDays(13)->startOfDay()->toDateString();
 
@@ -124,7 +146,6 @@ class CajeroDashboardController extends Controller
 
         $pagosPorDiaLabels = [];
         $pagosPorDiaData   = [];
-
         for ($i = 13; $i >= 0; $i--) {
             $dIso = now()->subDays($i)->toDateString();
             $pagosPorDiaLabels[] = Carbon::parse($dIso)->format('d/m');
@@ -132,30 +153,49 @@ class CajeroDashboardController extends Controller
         }
 
         // ==========================================================
-        // 5) Top clínicas por pendiente (Gs)
+        // 5) Pendiente por clínica (Top 6)
         // ==========================================================
         $topPendienteClinicas = [];
         if (Schema::hasTable((new Clinica())->getTable()) && $liqClinicaCol) {
             $clinicaTable = (new Clinica())->getTable();
 
-            $topPendienteClinicas = DB::table("{$liqTable} as pl")
+            $qTop = DB::table("{$liqTable} as pl")
                 ->join("{$clinicaTable} as c", 'c.id', '=', "pl.{$liqClinicaCol}")
-                ->when($liqEstadoCol, fn ($q) => $q->where("pl.{$liqEstadoCol}", 'confirmada'))
-                ->when($clinicaId, fn ($q) => $q->where("pl.{$liqClinicaCol}", $clinicaId))
+                ->when($liqEstadoCol, function ($q) use ($liqEstadoCol) {
+                    $q->where("pl.{$liqEstadoCol}", 'confirmada');
+                })
+                ->when($clinicaId, function ($q) use ($clinicaId, $liqClinicaCol) {
+                    $q->where("pl.{$liqClinicaCol}", $clinicaId);
+                });
+
+            if ($pagadoPorLiq) {
+                $qTop->leftJoinSub($pagadoPorLiq, 'pl_pagado', function ($j) {
+                    $j->on('pl_pagado.liq_id', '=', 'pl.id');
+                });
+            }
+
+            $pagadoExprTop = '0';
+            if ($liqPagadoCol) {
+                $pagadoExprTop = "COALESCE(pl.{$liqPagadoCol},0)";
+            } elseif ($pagadoPorLiq) {
+                $pagadoExprTop = "COALESCE(pl_pagado.pagado_gs,0)";
+            }
+
+            $topPendienteClinicas = $qTop
                 ->selectRaw("
-                    c.id as clinica_id,
                     c.nombre as clinica,
-                    SUM(GREATEST(0, (pl.{$liqTotalCol} - COALESCE(pl.{$liqPagadoCol},0)))) as pendiente
+                    SUM(GREATEST(0, (pl.{$liqTotalCol} - {$pagadoExprTop}))) as pendiente
                 ")
-                ->groupBy('c.id', 'c.nombre')
+                ->groupBy('c.nombre')
                 ->orderByDesc('pendiente')
                 ->limit(6)
                 ->get()
-                ->map(fn ($r) => [
-                    'clinica_id' => (int) $r->clinica_id,
-                    'clinica'    => (string) $r->clinica,
-                    'pendiente'  => (int) $r->pendiente,
-                ])
+                ->map(function ($r) {
+                    return [
+                        'clinica'   => (string) $r->clinica,
+                        'pendiente' => (int) $r->pendiente,
+                    ];
+                })
                 ->all();
         }
 
@@ -169,43 +209,32 @@ class CajeroDashboardController extends Controller
             ->get();
 
         // ==========================================================
-        // 7) NUEVO: pedidos pendientes de liquidación
-        // terminado y (sin liquidación o última != confirmada)
+        // 7) ✅ Pedidos pendientes de liquidar
+        // Regla: pedido que NO tiene registro en pedido_liquidaciones para ese pedido_id.
+        // (esto es lo que necesitás para que apenas se cree un pedido aparezca acá)
         // ==========================================================
-        $estadosParaLiquidar = ['finalizado', 'realizado', 'entregado', 'terminado'];
+        $pedidoTable = (new Pedido())->getTable(); // pedidos
 
-        // Subquery: última liquidación por pedido (NO usar ?? dentro del string)
-        $liqLatest = DB::table($liqTable)
-            ->selectRaw("{$liqPedidoCol} as pedido_id, MAX({$liqPkCol}) as liq_id")
-            ->groupBy($liqPedidoCol);
+        $qPendientesLiquidar = Pedido::query()
+            ->from("{$pedidoTable} as pe")
+            ->with(['clinica', 'paciente'])
+            ->when($clinicaId, function ($q) use ($clinicaId) {
+                $q->where('pe.clinica_id', $clinicaId);
+            })
+            // opcional: excluir anulados/cancelados si existieran en tu sistema
+            ->whereNotIn('pe.estado', ['anulado', 'cancelado'])
+            ->whereNotExists(function ($sub) use ($liqTable, $liqPedidoCol) {
+                $sub->select(DB::raw(1))
+                    ->from($liqTable)
+                    ->whereColumn("{$liqTable}.{$liqPedidoCol}", 'pe.id');
+            })
+            ->orderByDesc('pe.id');
 
-        $qPedidosPendLiq = Pedido::query()
-            ->from($pedidoTable)
-            ->leftJoinSub($liqLatest, 'l', function ($j) use ($pedidoTable) {
-                $j->on('l.pedido_id', '=', "{$pedidoTable}.id");
-            })
-            ->leftJoin("{$liqTable} as pl", 'pl.id', '=', 'l.liq_id')
-            ->when($clinicaId && $pedidoClinicaCol, function ($q) use ($clinicaId, $pedidoTable, $pedidoClinicaCol) {
-                $q->where("{$pedidoTable}.{$pedidoClinicaCol}", $clinicaId);
-            })
-            ->when($pedidoEstadoCol, function ($q) use ($pedidoTable, $pedidoEstadoCol, $estadosParaLiquidar) {
-                $q->whereIn("{$pedidoTable}.{$pedidoEstadoCol}", $estadosParaLiquidar);
-            })
-            ->where(function ($w) use ($liqEstadoCol) {
-                $w->whereNull('l.liq_id');
-                if ($liqEstadoCol) {
-                    $w->orWhere("pl.{$liqEstadoCol}", '!=', 'confirmada');
-                }
-            })
-            ->select("{$pedidoTable}.*")
-            ->with(['clinica', 'paciente']);
+        $pedidosPendientesLiquidacionCount = (int) (clone $qPendientesLiquidar)->count();
 
-        $pedidosPendientesLiquidacion = (clone $qPedidosPendLiq)
-            ->orderByDesc("{$pedidoTable}.id")
+        $pedidosPendientesLiquidacion = (clone $qPendientesLiquidar)
             ->limit(10)
             ->get();
-
-        $pedidosPendientesLiquidacionCount = (int) (clone $qPedidosPendLiq)->count();
 
         return view('admin.cajero.dashboard', compact(
             'pagadoHoy',
@@ -213,14 +242,11 @@ class CajeroDashboardController extends Controller
             'pendientePagoTotal',
             'liqPendientesCount',
             'pagosACuentaTotal',
-            'pagosACuentaCount',
             'pagosPorDiaLabels',
             'pagosPorDiaData',
             'topPendienteClinicas',
             'ultimosPagos',
             'clinicaId',
-
-            // pedidos por liquidar
             'pedidosPendientesLiquidacionCount',
             'pedidosPendientesLiquidacion'
         ));
