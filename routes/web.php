@@ -20,6 +20,7 @@ use App\Http\Controllers\Admin\TarifarioController;
 use App\Http\Controllers\Admin\PagoController;
 use App\Http\Controllers\Admin\LiquidacionController;
 use App\Http\Controllers\Admin\EstadoCuentaController;
+use App\Http\Controllers\Admin\Cajero\CajeroDashboardController;
 
 
 
@@ -49,6 +50,10 @@ Route::get('/dashboard', function () {
     if ($u->hasRole('clinica')) {
         return redirect()->route('admin.clinica.dashboard');
     }
+    if ($u->hasRole('cajero')) {
+        return redirect()->route('admin.cajero.dashboard');
+    }
+
 
     // Fallback por permisos
     if ($u->can('pedidos.view')) {
@@ -238,6 +243,20 @@ Route::middleware(['auth'])
         Route::get('estado-cuenta', [EstadoCuentaController::class, 'index'])
             ->name('estado_cuenta.index')
             ->middleware('permission:estado_cuenta.view');
+
+
+        /**
+         * ============================
+         * CAJERO (cajero|admin)
+         * ============================
+         */
+        Route::middleware(['role:cajero|admin'])
+            ->prefix('cajero')
+            ->name('cajero.')
+            ->group(function () {
+                Route::get('dashboard', [CajeroDashboardController::class, 'index'])
+                    ->name('dashboard');
+            });
     });
 
 require __DIR__ . '/auth.php';

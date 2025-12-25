@@ -1,51 +1,72 @@
  {{-- resources/views/layouts/partials/sidebar.blade.php --}}
  <aside class="main-sidebar sidebar-dark-primary elevation-4">
 
-     @php
-         $u = auth()->user();
+    @php
+    $u = auth()->user();
 
-         // ✅ Dashboard dinámico por rol (admin / tecnico / clinica)
-         $dashboardRoute = 'dashboard'; // fallback al redirect inteligente
+    // ✅ Dashboard dinámico por rol (admin / tecnico / clinica / cajero)
+    $dashboardRoute = 'dashboard'; // fallback al redirect inteligente
 
-         if ($u) {
-             if ($u->hasRole('admin')) {
-                 $dashboardRoute = 'admin.dashboard';
-             } elseif ($u->hasRole('tecnico')) {
-                 $dashboardRoute = 'admin.tecnico.dashboard';
-             } elseif ($u->hasRole('clinica')) {
-                 $dashboardRoute = 'admin.clinica.dashboard';
-             } else {
-                 // fallback por permisos (por si existen usuarios sin rol)
-                 if ($u->can('tecnico.pedidos.view')) {
-                     $dashboardRoute = 'admin.tecnico.dashboard';
-                 } elseif ($u->can('pedidos.view')) {
-                     $dashboardRoute = 'admin.pedidos.index';
-                 }
-             }
-         }
+    if ($u) {
+        if ($u->hasRole('admin')) {
+            $dashboardRoute = 'admin.dashboard';
+        } elseif ($u->hasRole('tecnico')) {
+            $dashboardRoute = 'admin.tecnico.dashboard';
+        } elseif ($u->hasRole('clinica')) {
+            $dashboardRoute = 'admin.clinica.dashboard';
+        } elseif ($u->hasRole('cajero')) {
+            $dashboardRoute = 'admin.cajero.dashboard';
+        } else {
+            // fallback por permisos (por si existen usuarios sin rol)
+            if ($u->can('tecnico.pedidos.view')) {
+                $dashboardRoute = 'admin.tecnico.dashboard';
+            } elseif ($u->can('pagos.view') || $u->can('pagos.create') || $u->can('liquidaciones.view')) {
+                $dashboardRoute = 'admin.cajero.dashboard';
+            } elseif ($u->can('pedidos.view')) {
+                $dashboardRoute = 'admin.pedidos.index';
+            }
+        }
+    }
 
-         $dashboardActive =
-             request()->routeIs('dashboard') ||
-             request()->routeIs('admin.dashboard') ||
-             request()->routeIs('admin.tecnico.dashboard') ||
-             request()->routeIs('admin.clinica.dashboard');
+    $dashboardActive =
+        request()->routeIs('dashboard') ||
+        request()->routeIs('admin.dashboard') ||
+        request()->routeIs('admin.tecnico.dashboard') ||
+        request()->routeIs('admin.clinica.dashboard') ||
+        request()->routeIs('admin.cajero.dashboard');
 
-         // ✅ Flags/actives para menús agrupados
-         $tarifarioActive = request()->routeIs('admin.tarifario.*');
-         $cobrosActive = request()->routeIs('admin.liquidaciones.*') || request()->routeIs('admin.pagos.*');
+    // ✅ Flags/actives para menús agrupados
+    $tarifarioActive = request()->routeIs('admin.tarifario.*');
 
-         $showTarifario =
-             $u &&
-             $u->can('tarifario.view') &&
-             (\Route::has('admin.tarifario.index') || \Route::has('admin.tarifario.clinica.index'));
+    // Cobros (pagos/liquidaciones/estado-cuenta) + dashboard cajero
+    $cobrosActive =
+        request()->routeIs('admin.liquidaciones.*') ||
+        request()->routeIs('admin.pagos.*') ||
+        request()->routeIs('admin.estado_cuenta.*') ||
+        request()->routeIs('admin.cajero.dashboard');
 
-         $showCobros =
-             $u &&
-             ($u->can('liquidaciones.view') || $u->can('pagos.view') || $u->can('pagos.create')) &&
-             (\Route::has('admin.liquidaciones.pedidos_liquidados') ||
-                 \Route::has('admin.pagos.index') ||
-                 \Route::has('admin.pagos.show')); // por si solo existe show/pdf por ahora
-     @endphp
+    $showTarifario =
+        $u &&
+        $u->can('tarifario.view') &&
+        (\Route::has('admin.tarifario.index') || \Route::has('admin.tarifario.clinica.index'));
+
+    $showCobros =
+        $u &&
+        (
+            $u->can('liquidaciones.view') ||
+            $u->can('pagos.view') ||
+            $u->can('pagos.create') ||
+            $u->hasRole('cajero') // ✅ cajero entra aunque uses solo rol
+        ) &&
+        (
+            \Route::has('admin.liquidaciones.pedidos_liquidados') ||
+            \Route::has('admin.pagos.multiple.create') ||
+            \Route::has('admin.pagos.show') ||
+            \Route::has('admin.estado_cuenta.index') ||
+            \Route::has('admin.cajero.dashboard')
+        );
+@endphp
+
 
      {{-- Logo / marca --}}
      <a href="{{ route($dashboardRoute) }}" class="brand-link d-flex align-items-center">
