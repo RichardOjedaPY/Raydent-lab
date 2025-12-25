@@ -14,6 +14,21 @@
   </div>
 @endif
 
+@php
+  $authUser = auth()->user();
+  $isCajero = $authUser && $authUser->hasRole('cajero');
+
+  // ✅ Solo admin/cajero ven la columna de liquidación
+  $showLiquidacionCol = ($isAdmin ?? false) || $isCajero;
+
+  // ✅ Recomendado: cajero también debería ver la clínica
+  $showClinicaCol = ($isAdmin ?? false) || $isCajero;
+
+  // ✅ Colspan dinámico según columnas visibles
+  $baseCols = 9; // #, Código, Paciente, Prioridad, Estado, Pago, Fecha solicitud, Agendado, Acciones
+  $colspan  = $baseCols + ($showClinicaCol ? 1 : 0) + ($showLiquidacionCol ? 1 : 0);
+@endphp
+
 <style>
   .card-soft{
     border: 1px solid rgba(148,163,184,.35);
@@ -28,11 +43,11 @@
   }
   .money { font-variant-numeric: tabular-nums; }
   .table thead th{
-    background: #f8fafc;
-    border-bottom: 1px solid rgba(148,163,184,.35);
-    font-size: .85rem;
+    background:#f8fafc;
+    border-bottom:1px solid rgba(148,163,184,.35);
+    font-size:.85rem;
   }
-  .btn-xs{ padding: .2rem .35rem; font-size: .75rem; border-radius: .45rem; }
+  .btn-xs{ padding:.2rem .35rem; font-size:.75rem; border-radius:.45rem; }
   .nowrap{ white-space: nowrap; }
 </style>
 
@@ -88,13 +103,18 @@
             <th style="width: 40px;">#</th>
             <th>Código</th>
 
-            @if($isAdmin)
+            @if($showClinicaCol)
               <th>Clínica</th>
             @endif
 
             <th>Paciente</th>
             <th class="text-center">Prioridad</th>
             <th class="text-center">Estado</th>
+
+            {{-- ✅ NUEVO: Liquidación (solo admin/cajero) --}}
+            @if($showLiquidacionCol)
+              <th class="text-center">Liquidación</th>
+            @endif
 
             {{-- ✅ Pago --}}
             <th class="text-center">Pago</th>
@@ -132,6 +152,13 @@
               $verPagosUrl = $liqId
                 ? route('admin.estado_cuenta.index', ['tab' => 'pagos', 'liquidacion_id' => $liqId])
                 : route('admin.estado_cuenta.index', ['tab' => 'pagos', 'clinica_id' => $p->clinica_id]);
+
+              // ✅ NUEVO: estado de liquidación (solo admin/cajero lo ve)
+              $requiereLiquidar = ($p->estado === 'finalizado') && is_null($liqId);
+              $liqOk            = (!is_null($liqId));
+
+              $liqLabel = $requiereLiquidar ? 'Pendiente' : ($liqOk ? 'OK' : '—');
+              $liqBadge = $requiereLiquidar ? 'warning' : ($liqOk ? 'success' : 'secondary');
             @endphp
 
             <tr>
@@ -144,8 +171,8 @@
                 <div class="text-muted small">{{ $p->codigo_pedido ?? '' }}</div>
               </td>
 
-              @if($isAdmin)
-                <td>{{ $p->clinica->nombre ?? '-' }}</td>
+              @if($showClinicaCol)
+                <td class="nowrap">{{ $p->clinica->nombre ?? '-' }}</td>
               @endif
 
               <td>
@@ -176,6 +203,26 @@
                   {{ ucfirst($p->estado) }}
                 </span>
               </td>
+
+              {{-- ✅ NUEVO: Liquidación --}}
+              @if($showLiquidacionCol)
+                <td class="text-center nowrap">
+                  <span class="badge badge-{{ $liqBadge }} badge-soft">
+                    {{ $liqLabel }}
+                  </span>
+
+                  {{-- Botón opcional: Liquidar (solo si está pendiente de liquidar) --}}
+                  @if($requiereLiquidar && \Route::has('admin.pedidos.liquidar'))
+                    @can('liquidaciones.view')
+                      <a href="{{ route('admin.pedidos.liquidar', $p) }}"
+                         class="btn btn-xs btn-warning ml-1"
+                         title="Liquidar">
+                        <i class="fas fa-file-invoice-dollar"></i>
+                      </a>
+                    @endcan
+                  @endif
+                </td>
+              @endif
 
               {{-- ✅ Pago --}}
               <td class="text-center">
@@ -258,7 +305,7 @@
             </tr>
           @empty
             <tr>
-              <td colspan="{{ $isAdmin ? 10 : 9 }}" class="text-center text-muted py-3">
+              <td colspan="{{ $colspan }}" class="text-center text-muted py-3">
                 No hay pedidos registrados.
               </td>
             </tr>
